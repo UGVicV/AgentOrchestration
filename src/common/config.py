@@ -17,11 +17,15 @@ class Config:
             self._data = json.load(f)
 
     def _load_env_overrides(self) -> None:
-        prefix = "AO_"
-        for key, value in os.environ.items():
-            if key.startswith(prefix):
-                config_key = key[len(prefix):].lower().replace("_", ".")
-                self._set_nested(config_key, value)
+        try:
+            prefix = "AO_CONFIG_"
+            for key, value in os.environ.items():
+                if key.startswith(prefix):
+                    config_key = key[len(prefix):].lower().replace("_", ".")
+                    self._set_nested(config_key, value)
+        except Exception as e:
+            print(f"Error in _load_env_overrides: {e}")
+            raise
 
     def _set_nested(self, key: str, value: Any) -> None:
         parts = key.split(".")

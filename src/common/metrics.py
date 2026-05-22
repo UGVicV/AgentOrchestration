@@ -31,12 +31,17 @@ class MetricsCollector:
             self._timers[metric] = time.time()
 
     def stop_timer(self, metric: str) -> float:
-        with self._lock:
-            if metric in self._timers:
-                duration = time.time() - self._timers.pop(metric)
+        try:
+            duration = 0.0
+            with self._lock:
+                if metric in self._timers:
+                    duration = time.time() - self._timers.pop(metric)
+            if duration > 0.0:
                 self.observe(metric, duration)
-                return duration
-        return 0.0
+            return duration
+        except Exception as e:
+            print(f"Error in stop_timer: {e}")
+            raise
 
     def snapshot(self) -> Dict:
         with self._lock:

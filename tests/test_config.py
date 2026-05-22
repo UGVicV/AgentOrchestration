@@ -32,6 +32,19 @@ class TestConfig:
         assert data["key1"] == "value1"
         assert data["key2"] == "value2"
 
+    def test_env_overrides(self, monkeypatch):
+        try:
+            monkeypatch.setenv("AO_CONFIG_DATABASE_PORT", "5432")
+            monkeypatch.setenv("AO_AGENT_ID", "agent-123")
+            config = Config()
+            # AO_CONFIG_ prefix should override
+            assert config.get("database.port") == "5432"
+            # Unrelated AO_ prefix (e.g. AO_AGENT_ID) should NOT override
+            assert config.get("agent.id") is None
+        except Exception as e:
+            print(f"Error in test_env_overrides: {e}")
+            raise
+
 # 2019-02-01T18:58:35 update
 
 # 2019-07-31T13:45:15 update
