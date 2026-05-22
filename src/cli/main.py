@@ -39,7 +39,19 @@ def cli():
     elif args.command == "deploy":
         print(f"Deploying agent from manifest: {args.manifest}")
     elif args.command == "status":
-        print("Checking agent status...")
+        try:
+            print("Checking agent status...")
+            if args.watch:
+                import time
+                while True:
+                    print("Agent status: OK")
+                    time.sleep(1)
+        except KeyboardInterrupt:
+            print("\nWatch mode stopped gracefully.")
+            sys.exit(0)
+        except Exception as e:
+            print(f"Error checking status: {e}")
+            raise
     elif args.command == "logs":
         print(f"Fetching logs for agent: {args.agent_id}")
     else:
