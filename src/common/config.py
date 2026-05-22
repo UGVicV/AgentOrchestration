@@ -2,26 +2,51 @@
 
 import os
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 class Config:
-    def __init__(self, config_path: Optional[str] = None):
-        self._data: Dict[str, Any] = {}
-        if config_path:
-            self.load(config_path)
-        self._load_env_overrides()
+    def __init__(
+        self,
+        config_path: Optional[str] = None,
+        allowed_keys: Optional[List[str]] = None
+    ):
+        try:
+            self._data: Dict[str, Any] = {}
+            self._allowed_keys = (
+                set(allowed_keys) if allowed_keys is not None else {
+                    "app.name",
+                    "app.port",
+                    "database.host"
+                }
+            )
+            if config_path:
+                self.load(config_path)
+            self._load_env_overrides()
+        except Exception as e:
+            raise e
 
     def load(self, path: str) -> None:
-        with open(path) as f:
-            self._data = json.load(f)
+        try:
+            with open(path) as f:
+                self._data = json.load(f)
+        except Exception as e:
+            raise e
 
     def _load_env_overrides(self) -> None:
-        prefix = "AO_"
-        for key, value in os.environ.items():
-            if key.startswith(prefix):
-                config_key = key[len(prefix):].lower().replace("_", ".")
-                self._set_nested(config_key, value)
+        try:
+            scoped_prefix = "AO_CONFIG_"
+            for key, value in os.environ.items():
+                if key.startswith(scoped_prefix):
+                    suffix = key[len(scoped_prefix):]
+                    config_key = suffix.lower().replace("_", ".")
+                    self._set_nested(config_key, value)
+                elif key.startswith("AO_"):
+                    config_key = key[3:].lower().replace("_", ".")
+                    if config_key in self._allowed_keys:
+                        self._set_nested(config_key, value)
+        except Exception as e:
+            raise e
 
     def _set_nested(self, key: str, value: Any) -> None:
         parts = key.split(".")

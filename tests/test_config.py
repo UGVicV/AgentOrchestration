@@ -1,4 +1,3 @@
-import pytest
 from src.common.config import Config
 
 
@@ -31,6 +30,47 @@ class TestConfig:
         data = config.to_dict()
         assert data["key1"] == "value1"
         assert data["key2"] == "value2"
+
+    def test_env_overrides_filtering(self, monkeypatch):
+        try:
+            # Thiết lập các biến môi trường giả lập
+            monkeypatch.setenv("AO_CONFIG_APP_NAME", "override_name")
+            monkeypatch.setenv("AO_CONFIG_DATABASE_PORT", "3306")
+            # Nằm trong default allowlist
+            monkeypatch.setenv("AO_DATABASE_HOST", "db_host")
+            # Không nằm trong allowlist, cũng không phải config prefix
+            monkeypatch.setenv("AO_AGENT_ID", "agent_123")
+            # Không nằm trong allowlist
+            monkeypatch.setenv("AO_API_KEY", "secret_key")
+
+            config = Config()
+
+            # Các biến cấu hình hợp lệ qua prefix AO_CONFIG_ phải được nạp
+            assert config.get("app.name") == "override_name"
+            assert config.get("database.port") == "3306"
+
+            # Biến trong allowlist mặc định phải được nạp
+            assert config.get("database.host") == "db_host"
+
+            # Biến runtime không được phép nạp
+            assert config.get("agent.id") is None
+            assert config.get("api.key") is None
+        except Exception as e:
+            raise e
+
+    def test_env_overrides_custom_allowlist(self, monkeypatch):
+        try:
+            monkeypatch.setenv("AO_APP_PORT", "9000")
+            monkeypatch.setenv("AO_DATABASE_HOST", "db_host")
+
+            # Khởi tạo Config với allowlist tùy chỉnh chỉ cho phép "app.port"
+            config = Config(allowed_keys=["app.port"])
+
+            assert config.get("app.port") == "9000"
+            # Bị loại do không nằm trong custom allowlist
+            assert config.get("database.host") is None
+        except Exception as e:
+            raise e
 
 # 2019-02-01T18:58:35 update
 
