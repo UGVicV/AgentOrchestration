@@ -13,9 +13,24 @@ class TestMetricsCollector:
         assert snapshot["counters"]["requests.total"] == 2
 
     def test_gauge(self):
-        self.metrics.gauge("memory.usage", 85.5)
-        snapshot = self.metrics.snapshot()
-        assert snapshot["gauges"]["memory.usage"] == 85.5
+        try:
+            self.metrics.gauge("memory.usage", 85.5)
+            snapshot = self.metrics.snapshot()
+            assert snapshot["gauges"]["memory.usage"] == 85.5
+        except Exception as e:
+            raise e
+
+    def test_gauge_invalid_type(self):
+        try:
+            with pytest.raises(TypeError) as exc_info:
+                self.metrics.gauge("memory.usage", "not-a-number")  # type: ignore
+            assert "must be numeric" in str(exc_info.value)
+            
+            with pytest.raises(TypeError):
+                self.metrics.gauge("memory.usage", True)  # type: ignore
+        except Exception as e:
+            raise e
+
 
     def test_observe(self):
         self.metrics.observe("response.time", 0.5)

@@ -3,12 +3,17 @@
 import time
 from collections import defaultdict
 from typing import Dict, List
-from threading import Lock
+from threading import RLock
+
 
 
 class MetricsCollector:
     def __init__(self):
-        self._lock = Lock()
+        try:
+            self._lock = RLock()
+        except Exception as e:
+            raise e
+
         self._counters: Dict[str, int] = defaultdict(int)
         self._gauges: Dict[str, float] = {}
         self._histograms: Dict[str, List[float]] = defaultdict(list)
@@ -19,8 +24,14 @@ class MetricsCollector:
             self._counters[metric] += value
 
     def gauge(self, metric: str, value: float) -> None:
-        with self._lock:
-            self._gauges[metric] = value
+        try:
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                raise TypeError("Gauge value must be numeric (int or float)")
+            with self._lock:
+                self._gauges[metric] = value
+        except Exception as e:
+            raise e
+
 
     def observe(self, metric: str, value: float) -> None:
         with self._lock:
