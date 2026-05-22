@@ -1,5 +1,6 @@
 """Workflow Manager — Defines and executes multi-step agent workflows."""
 
+import time
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
@@ -33,6 +34,47 @@ class Workflow:
         self.steps: List[WorkflowStep] = []
         self._step_map: Dict[str, WorkflowStep] = {}
         self.status = StepStatus.PENDING
+        self.parameters: Dict[str, Dict[str, Any]] = {}
+        self.bindings: Dict[str, Any] = {}
+        self.audit_log: List[Dict[str, Any]] = []
+
+    def add_parameter(self, name: str, default: Any = None, required: bool = False) -> "Workflow":
+        try:
+            self.parameters[name] = {"default": default, "required": required}
+            return self
+        except Exception as e:
+            print(f"Error in add_parameter: {e}")
+            raise
+
+    def bind(self, params: Dict[str, Any]) -> None:
+        try:
+            new_bindings = {}
+            for name, config in self.parameters.items():
+                if name in params:
+                    new_bindings[name] = params[name]
+                else:
+                    new_bindings[name] = config["default"]
+
+            for name, config in self.parameters.items():
+                if config["required"] and new_bindings.get(name) is None:
+                    raise ValueError(f"Missing required parameter: {name}")
+
+            self.bindings = new_bindings
+            self.audit_log.append({
+                "action": "bind",
+                "parameter_names": list(self.parameters.keys()),
+                "reason": "Parameter binding successful",
+                "timestamp": time.time(),
+            })
+        except Exception as e:
+            self.audit_log.append({
+                "action": "bind_failed",
+                "parameter_names": list(self.parameters.keys()),
+                "reason": f"Binding failed: {str(e)}",
+                "timestamp": time.time(),
+            })
+            print(f"Error in bind: {e}")
+            raise
 
     def add_step(self, step: WorkflowStep) -> "Workflow":
         self.steps.append(step)
@@ -61,9 +103,15 @@ class WorkflowManager:
     def delete_workflow(self, workflow_id: str) -> bool:
         return self._workflows.pop(workflow_id, None) is not None
 
-    def execute_workflow(self, workflow_id: str) -> bool:
+    def execute_workflow(self, workflow_id: str, params: Dict[str, Any] = None) -> bool:
         workflow = self._workflows.get(workflow_id)
         if not workflow:
+            return False
+
+        try:
+            workflow.bind(params or {})
+        except ValueError as e:
+            print(f"Rejecting workflow execution: {e}")
             return False
 
         workflow.status = StepStatus.RUNNING
