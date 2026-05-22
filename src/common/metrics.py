@@ -1,6 +1,7 @@
 """Metrics collection and reporting."""
 
 import time
+from datetime import datetime
 from collections import defaultdict
 from typing import Dict, List
 from threading import Lock
@@ -31,21 +32,33 @@ class MetricsCollector:
             self._timers[metric] = time.time()
 
     def stop_timer(self, metric: str) -> float:
-        with self._lock:
-            if metric in self._timers:
-                duration = time.time() - self._timers.pop(metric)
+        try:
+            duration = 0.0
+            with self._lock:
+                if metric in self._timers:
+                    duration = time.time() - self._timers.pop(metric)
+            if duration > 0.0:
                 self.observe(metric, duration)
-                return duration
-        return 0.0
+            return duration
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Error in stop_timer: {e}", exc_info=True)
+            raise e
 
     def snapshot(self) -> Dict:
-        with self._lock:
-            return {
-                "counters": dict(self._counters),
-                "gauges": dict(self._gauges),
-                "histograms": {k: {"count": len(v), "sum": sum(v), "avg": sum(v) / len(v) if v else 0}
-                               for k, v in self._histograms.items()},
-            }
+        try:
+            with self._lock:
+                return {
+                    "collected_at": datetime.utcnow().isoformat() + "Z",
+                    "counters": dict(self._counters),
+                    "gauges": dict(self._gauges),
+                    "histograms": {k: {"count": len(v), "sum": sum(v), "avg": sum(v) / len(v) if v else 0}
+                                   for k, v in self._histograms.items()},
+                }
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Error in snapshot: {e}", exc_info=True)
+            raise e
 
 
 metrics = MetricsCollector()

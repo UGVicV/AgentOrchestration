@@ -31,6 +31,16 @@ class TestMetricsCollector:
         duration = self.metrics.stop_timer("operation")
         assert duration > 0.005
 
+    def test_snapshot_collected_at(self):
+        snapshot = self.metrics.snapshot()
+        assert "collected_at" in snapshot
+        assert isinstance(snapshot["collected_at"], str)
+        assert snapshot["collected_at"].endswith("Z")
+        from datetime import datetime
+        dt_str = snapshot["collected_at"][:-1]
+        dt = datetime.fromisoformat(dt_str)
+        assert dt is not None
+
 # 2019-07-16T09:29:21 update
 
 # 2019-09-09T13:35:42 update

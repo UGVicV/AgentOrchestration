@@ -7,11 +7,32 @@ from uuid import uuid4
 
 
 class AgentExecutor:
-    def __init__(self, max_concurrent: int = 5):
+    def __init__(self, max_concurrent: int = 5, max_results: int = 100, ttl: Optional[float] = None):
         self.max_concurrent = max_concurrent
+        self.max_results = max_results
+        self.ttl = ttl
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._active_tasks: Dict[str, asyncio.Task] = {}
         self._results: Dict[str, Any] = {}
+
+    def _cleanup_results(self) -> None:
+        try:
+            now = time.time()
+            if self.ttl is not None:
+                expired_keys = []
+                for k, v in self._results.items():
+                    timestamp = v.get("timestamp") if isinstance(v, dict) else None
+                    if timestamp is not None and now - timestamp > self.ttl:
+                        expired_keys.append(k)
+                for k in expired_keys:
+                    self._results.pop(k, None)
+
+            while len(self._results) > self.max_results:
+                oldest_key = next(iter(self._results))
+                self._results.pop(oldest_key, None)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Error in _cleanup_results: {e}", exc_info=True)
 
     async def execute(self, agent_id: str, task: Dict[str, Any], handler: Callable) -> str:
         execution_id = str(uuid4())
@@ -24,9 +45,10 @@ class AgentExecutor:
                 result = await task_obj
                 self._results[execution_id] = result
             except Exception as e:
-                self._results[execution_id] = {"error": str(e)}
+                self._results[execution_id] = {"error": str(e), "timestamp": time.time()}
             finally:
                 self._active_tasks.pop(execution_id, None)
+                self._cleanup_results()
         return execution_id
 
     async def _run_execution(self, exec_id: str, agent_id: str, task: Dict, handler: Callable) -> Any:
@@ -43,6 +65,7 @@ class AgentExecutor:
         }
 
     def get_result(self, execution_id: str) -> Optional[Any]:
+        self._cleanup_results()
         return self._results.get(execution_id)
 
     def cancel(self, execution_id: str) -> bool:
