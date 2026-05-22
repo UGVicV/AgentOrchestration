@@ -10,6 +10,42 @@ from starlette.responses import Response
 logger = logging.getLogger(__name__)
 
 
+class ExceptionMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        try:
+            try:
+                response = await call_next(request)
+            except Exception as e:
+                logger.exception(f"Unhandled error in API request: {e}")
+                response = Response(
+                    status_code=500,
+                    content="Internal Server Error",
+                )
+            finally:
+                try:
+                    if hasattr(request, "state"):
+                        request.state._cleanup = True
+                except Exception as ex:
+                    logger.error(f"Error during request state cleanup: {ex}")
+            
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["X-XSS-Protection"] = "1; mode=block"
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+            return response
+        except Exception as e:
+            logger.error(f"Fatal error in ExceptionMiddleware: {e}")
+            fallback = Response(status_code=500, content="Internal Server Error")
+            try:
+                fallback.headers["X-Content-Type-Options"] = "nosniff"
+                fallback.headers["X-Frame-Options"] = "DENY"
+                fallback.headers["X-XSS-Protection"] = "1; mode=block"
+                fallback.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+            except Exception:
+                pass
+            return fallback
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         if request.url.path.startswith("/api/v2") and request.url.path != "/api/v2/auth/token":
