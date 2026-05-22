@@ -8,6 +8,29 @@ from uuid import uuid4
 
 class AgentExecutor:
     def __init__(self, max_concurrent: int = 5):
+        try:
+            if isinstance(max_concurrent, bool):
+                raise ValueError("max_concurrent must be numeric")
+            
+            if isinstance(max_concurrent, str):
+                try:
+                    max_concurrent = int(max_concurrent)
+                except ValueError:
+                    try:
+                        max_concurrent = int(float(max_concurrent))
+                    except ValueError:
+                        raise ValueError("max_concurrent must be numeric")
+            elif not isinstance(max_concurrent, (int, float)):
+                raise ValueError("max_concurrent must be numeric")
+            else:
+                max_concurrent = int(max_concurrent)
+
+            if max_concurrent <= 0:
+                raise ValueError("max_concurrent must be positive")
+        except Exception as e:
+            print(f"Validation error in AgentExecutor init: {e}")
+            raise
+
         self.max_concurrent = max_concurrent
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._active_tasks: Dict[str, asyncio.Task] = {}
