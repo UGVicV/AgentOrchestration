@@ -3,15 +3,43 @@
 import os
 import tempfile
 import resource
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from pathlib import Path
 
 
 class ResourceLimits:
     def __init__(self, cpu_time: int = 60, memory_mb: int = 512, disk_mb: int = 100):
-        self.cpu_time = cpu_time
-        self.memory_mb = memory_mb
-        self.disk_mb = disk_mb
+        try:
+            self.cpu_time = self._validate_limit("cpu_time", cpu_time)
+            self.memory_mb = self._validate_limit("memory_mb", memory_mb)
+            self.disk_mb = self._validate_limit("disk_mb", disk_mb)
+        except Exception as e:
+            print(f"Validation error in ResourceLimits init: {e}")
+            raise
+
+    @staticmethod
+    def _validate_limit(name: str, value: Any) -> int:
+        try:
+            if isinstance(value, bool):
+                raise ValueError(f"{name} must be numeric")
+            if isinstance(value, str):
+                try:
+                    value = int(value)
+                except ValueError:
+                    try:
+                        value = int(float(value))
+                    except ValueError:
+                        raise ValueError(f"{name} must be numeric")
+            elif not isinstance(value, (int, float)):
+                raise ValueError(f"{name} must be numeric")
+            else:
+                value = int(value)
+            
+            if value <= 0:
+                raise ValueError(f"{name} must be positive")
+            return value
+        except Exception as e:
+            raise
 
 
 class AgentSandbox:
