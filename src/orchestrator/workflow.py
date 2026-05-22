@@ -1,8 +1,12 @@
 """Workflow Manager — Defines and executes multi-step agent workflows."""
 
+import inspect
+import logging
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 
 class StepStatus(Enum):
@@ -14,7 +18,13 @@ class StepStatus(Enum):
 
 
 class WorkflowStep:
-    def __init__(self, name: str, handler: Callable, retries: int = 0, timeout: int = 300):
+    def __init__(
+        self,
+        name: str,
+        handler: Callable,
+        retries: int = 0,
+        timeout: int = 300
+    ):
         self.id = str(uuid4())
         self.name = name
         self.handler = handler
@@ -33,6 +43,11 @@ class Workflow:
         self.steps: List[WorkflowStep] = []
         self._step_map: Dict[str, WorkflowStep] = {}
         self.status = StepStatus.PENDING
+        try:
+            self.parameter_definitions: Dict[str, Dict[str, Any]] = {}
+            self.parameters: Dict[str, Any] = {}
+        except Exception as e:
+            raise e
 
     def add_step(self, step: WorkflowStep) -> "Workflow":
         self.steps.append(step)
@@ -41,6 +56,21 @@ class Workflow:
 
     def get_step(self, step_id: str) -> Optional[WorkflowStep]:
         return self._step_map.get(step_id)
+
+    def add_parameter(
+        self,
+        name: str,
+        default: Any = None,
+        required: bool = False
+    ) -> "Workflow":
+        try:
+            self.parameter_definitions[name] = {
+                "default": default,
+                "required": required
+            }
+            return self
+        except Exception as e:
+            raise e
 
 
 class WorkflowManager:
@@ -61,26 +91,107 @@ class WorkflowManager:
     def delete_workflow(self, workflow_id: str) -> bool:
         return self._workflows.pop(workflow_id, None) is not None
 
-    def execute_workflow(self, workflow_id: str) -> bool:
-        workflow = self._workflows.get(workflow_id)
-        if not workflow:
-            return False
-
-        workflow.status = StepStatus.RUNNING
-        for step in workflow.steps:
-            step.status = StepStatus.RUNNING
-            try:
-                result = step.handler()
-                step.result = result
-                step.status = StepStatus.COMPLETED
-            except Exception as e:
-                step.error = str(e)
-                step.status = StepStatus.FAILED
-                workflow.status = StepStatus.FAILED
+    def execute_workflow(
+        self,
+        workflow_id: str,
+        params: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        try:
+            workflow = self._workflows.get(workflow_id)
+            if not workflow:
                 return False
 
-        workflow.status = StepStatus.COMPLETED
-        return True
+            # 1. Lifecycle state check: "lifecycle-state rebinds are rejected
+            # before workflow/scheduling state changes"
+            if workflow.status != StepStatus.PENDING:
+                from src.common.metrics import metrics
+                metrics.increment("workflow.parameters.validation_failed")
+                raise ValueError(
+                    "Cannot bind parameters when workflow status is "
+                    f"{workflow.status.value}"
+                )
+
+            input_params = params or {}
+
+            # 2. Unknown parameters check
+            for k in input_params.keys():
+                if k not in workflow.parameter_definitions:
+                    from src.common.metrics import metrics
+                    metrics.increment("workflow.parameters.validation_failed")
+                    logger.error(f"Unknown parameter rejected: {k}")
+                    raise ValueError(f"Unknown parameter: {k}")
+
+            # 3. Merge and validate required parameters
+            bound_params = {}
+            for name, definition in workflow.parameter_definitions.items():
+                if name in input_params:
+                    # explicit override (có thể là False)
+                    bound_params[name] = input_params[name]
+                elif (
+                    "default" in definition
+                    and definition["default"] is not None
+                ):
+                    # explicit default (có thể là False)
+                    bound_params[name] = definition["default"]
+                else:
+                    if definition.get("required", False):
+                        from src.common.metrics import metrics
+                        metrics.increment(
+                            "workflow.parameters.validation_failed"
+                        )
+                        logger.error(
+                            f"Missing required parameter rejected: {name}"
+                        )
+                        raise ValueError(
+                            f"Missing required parameter: {name}"
+                        )
+                    bound_params[name] = None
+
+            # Lưu parameters đã bind vào workflow
+            workflow.parameters = bound_params
+
+            # Record success metric
+            from src.common.metrics import metrics
+            metrics.increment("workflow.parameters.bind_success")
+
+            # Sanitized audit records with parameter names only
+            logger.info(
+                f"Successfully bound parameters: {list(bound_params.keys())}"
+            )
+
+            # Đổi trạng thái sang RUNNING
+            workflow.status = StepStatus.RUNNING
+
+            # Chạy các step
+            for step in workflow.steps:
+                step.status = StepStatus.RUNNING
+                try:
+                    sig = inspect.signature(step.handler)
+                    has_kwargs = any(
+                        p.kind == inspect.Parameter.VAR_KEYWORD
+                        for p in sig.parameters.values()
+                    )
+                    if has_kwargs:
+                        result = step.handler(**bound_params)
+                    else:
+                        kwargs = {
+                            k: v for k, v in bound_params.items()
+                            if k in sig.parameters
+                        }
+                        result = step.handler(**kwargs)
+
+                    step.result = result
+                    step.status = StepStatus.COMPLETED
+                except Exception as e:
+                    step.error = str(e)
+                    step.status = StepStatus.FAILED
+                    workflow.status = StepStatus.FAILED
+                    return False
+
+            workflow.status = StepStatus.COMPLETED
+            return True
+        except Exception as e:
+            raise e
 
 # 2019-03-27T19:58:07 update
 
