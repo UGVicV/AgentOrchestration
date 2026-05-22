@@ -78,6 +78,35 @@ class TestMetricsCollector:
             print(f"Error in test_snapshot_includes_collected_at: {e}")
             raise
 
+    def test_active_timer_count(self):
+        try:
+            # Initial active timers should be 0
+            snapshot = self.metrics.snapshot()
+            assert snapshot["active_timers"] == 0
+            
+            # Start a timer
+            self.metrics.start_timer("timer_1")
+            snapshot = self.metrics.snapshot()
+            assert snapshot["active_timers"] == 1
+            
+            # Start another timer
+            self.metrics.start_timer("timer_2")
+            snapshot = self.metrics.snapshot()
+            assert snapshot["active_timers"] == 2
+            
+            # Stop first timer
+            self.metrics.stop_timer("timer_1")
+            snapshot = self.metrics.snapshot()
+            assert snapshot["active_timers"] == 1
+            
+            # Stop second timer
+            self.metrics.stop_timer("timer_2")
+            snapshot = self.metrics.snapshot()
+            assert snapshot["active_timers"] == 0
+        except Exception as e:
+            print(f"Error in test_active_timer_count: {e}")
+            raise
+
 # 2019-07-16T09:29:21 update
 
 # 2019-09-09T13:35:42 update
