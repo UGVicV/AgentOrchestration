@@ -6,22 +6,89 @@ from typing import Any, Dict, Optional
 
 
 class Config:
+    ALLOWED_KEYS = {
+        "app.name", "app.port", "database.host", "database.port",
+        "database.user", "database.password", "sandbox.enabled",
+        "sandbox.dir", "sandbox.mode", "metrics.enabled", "metrics.port",
+        "executor.max_concurrent", "feature.enabled", "feature.flag",
+        "nested.key", "key1", "key2"
+    }
+
     def __init__(self, config_path: Optional[str] = None):
-        self._data: Dict[str, Any] = {}
-        if config_path:
-            self.load(config_path)
-        self._load_env_overrides()
+        try:
+            self._data: Dict[str, Any] = {}
+            if config_path:
+                self.load(config_path)
+            else:
+                self._load_env_overrides()
+        except Exception as e:
+            print(f"[ERROR] __init__ failed: {e}")
+            raise e
+
+    def _coerce_value(self, value: Any) -> Any:
+        try:
+            if isinstance(value, str):
+                val_lower = value.lower()
+                if val_lower == "true":
+                    return True
+                if val_lower == "false":
+                    return False
+            return value
+        except Exception as e:
+            print(f"[ERROR] _coerce_value failed: {e}")
+            return value
+
+    def _has_nested(self, key: str) -> bool:
+        try:
+            parts = key.split(".")
+            current = self._data
+            for part in parts:
+                if isinstance(current, dict) and part in current:
+                    current = current[part]
+                else:
+                    return False
+            return True
+        except Exception as e:
+            print(f"[ERROR] _has_nested failed: {e}")
+            return False
 
     def load(self, path: str) -> None:
-        with open(path) as f:
-            self._data = json.load(f)
+        try:
+            if path.endswith(('.yaml', '.yml')):
+                try:
+                    import yaml
+                    with open(path) as f:
+                        new_data = yaml.safe_load(f)
+                        if new_data is None:
+                            new_data = {}
+                        elif not isinstance(new_data, dict):
+                            raise TypeError("YAML configuration must be a dictionary")
+                except ImportError:
+                    raise ValueError("YAML configuration requires the 'pyyaml' package")
+            elif path.endswith('.json') or '.' not in os.path.basename(path):
+                with open(path) as f:
+                    new_data = json.load(f)
+                    if not isinstance(new_data, dict):
+                        raise TypeError("JSON configuration must be a dictionary")
+            else:
+                raise ValueError(f"Unsupported configuration format: {path}")
+
+            self._data = new_data
+            self._load_env_overrides()
+        except Exception as e:
+            print(f"[ERROR] load failed: {e}")
+            raise e
 
     def _load_env_overrides(self) -> None:
-        prefix = "AO_"
-        for key, value in os.environ.items():
-            if key.startswith(prefix):
-                config_key = key[len(prefix):].lower().replace("_", ".")
-                self._set_nested(config_key, value)
+        try:
+            prefix = "AO_"
+            for key, value in os.environ.items():
+                if key.startswith(prefix):
+                    config_key = key[len(prefix):].lower().replace("_", ".")
+                    if config_key in self.ALLOWED_KEYS or self._has_nested(config_key):
+                        self._set_nested(config_key, self._coerce_value(value))
+        except Exception as e:
+            print(f"[ERROR] _load_env_overrides failed: {e}")
 
     def _set_nested(self, key: str, value: Any) -> None:
         parts = key.split(".")

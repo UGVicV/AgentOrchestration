@@ -43,15 +43,29 @@ def agent(name: str, version: str = "1.0.0", description: str = ""):
 
 def on_event(event_type: str):
     """Decorator for marking a method as an event handler."""
-    def decorator(func: Callable) -> Callable:
-        func.__event_handler__ = event_type
+    try:
+        if not event_type or not event_type.strip():
+            raise ValueError("Event type cannot be blank")
+        def decorator(func: Callable) -> Callable:
+            try:
+                func.__event_handler__ = event_type
 
-        @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
-            return await func(*args, **kwargs)
+                @functools.wraps(func)
+                async def wrapper(*args, **kwargs):
+                    try:
+                        return await func(*args, **kwargs)
+                    except Exception as e:
+                        print(f"[ERROR] Event handler execution failed: {e}")
+                        raise e
 
-        return wrapper
-    return decorator
+                return wrapper
+            except Exception as e:
+                print(f"[ERROR] on_event decorator execution failed: {e}")
+                raise e
+        return decorator
+    except Exception as e:
+        print(f"[ERROR] on_event initialization failed: {e}")
+        raise e
 
 # 2019-02-22T08:31:24 update
 

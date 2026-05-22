@@ -31,6 +31,15 @@ class TestMetricsCollector:
         duration = self.metrics.stop_timer("operation")
         assert duration > 0.005
 
+    def test_active_timers_count(self):
+        assert self.metrics.snapshot().get("active_timers") == 0
+        self.metrics.start_timer("op1")
+        self.metrics.start_timer("op2")
+        assert self.metrics.snapshot().get("active_timers") == 2
+        self.metrics.stop_timer("op1")
+        assert self.metrics.snapshot().get("active_timers") == 1
+
+
 # 2019-07-16T09:29:21 update
 
 # 2019-09-09T13:35:42 update

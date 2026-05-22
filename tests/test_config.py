@@ -39,6 +39,57 @@ class TestConfig:
         data["nested"]["key"] = "mutated"
         assert config.get("nested.key") == "original"
 
+    def test_yaml_config_support(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text('app:\n  name: yaml_test\n  port: 9090')
+        config = Config(str(config_file))
+        assert config.get("app.name") == "yaml_test"
+        assert config.get("app.port") == 9090
+
+        config_file_yml = tmp_path / "config.yml"
+        config_file_yml.write_text('database:\n  host: remotehost')
+        config2 = Config(str(config_file_yml))
+        assert config2.get("database.host") == "remotehost"
+
+    def test_invalid_config_format(self, tmp_path):
+        config_file = tmp_path / "config.txt"
+        config_file.write_text('app: name')
+        with pytest.raises(ValueError) as excinfo:
+            Config(str(config_file))
+        assert "Unsupported configuration format" in str(excinfo.value)
+
+    def test_atomic_reload_on_parse_failure(self, tmp_path):
+        config_file = tmp_path / "config.json"
+        config_file.write_text('{"app": {"name": "initial"}}')
+        config = Config(str(config_file))
+        assert config.get("app.name") == "initial"
+
+        # Overwrite with malformed json
+        config_file.write_text('{"app": {"name": "new"')
+        with pytest.raises(Exception):
+            config.load(str(config_file))
+        # Value should remain initial
+        assert config.get("app.name") == "initial"
+
+    def test_coerce_boolean_env_overrides(self, monkeypatch):
+        monkeypatch.setenv("AO_FEATURE_ENABLED", "false")
+        monkeypatch.setenv("AO_DATABASE_HOST", "dbhost")
+        monkeypatch.setenv("AO_METRICS_ENABLED", "true")
+
+        config = Config()
+        assert config.get("feature.enabled") is False
+        assert config.get("database.host") == "dbhost"
+        assert config.get("metrics.enabled") is True
+
+    def test_avoid_importing_unrelated_env_vars(self, monkeypatch):
+        monkeypatch.setenv("AO_AGENT_ID", "agent_123")
+        monkeypatch.setenv("AO_DATABASE_HOST", "dbhost")
+
+        config = Config()
+        assert config.get("database.host") == "dbhost"
+        assert config.get("agent.id") is None
+
+
 # 2019-02-01T18:58:35 update
 
 # 2019-07-31T13:45:15 update

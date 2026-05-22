@@ -39,13 +39,18 @@ class MetricsCollector:
         return 0.0
 
     def snapshot(self) -> Dict:
-        with self._lock:
-            return {
-                "counters": dict(self._counters),
-                "gauges": dict(self._gauges),
-                "histograms": {k: {"count": len(v), "sum": sum(v), "avg": sum(v) / len(v) if v else 0}
-                               for k, v in self._histograms.items()},
-            }
+        try:
+            with self._lock:
+                return {
+                    "counters": dict(self._counters),
+                    "gauges": dict(self._gauges),
+                    "histograms": {k: {"count": len(v), "sum": sum(v), "avg": sum(v) / len(v) if v else 0}
+                                   for k, v in self._histograms.items()},
+                    "active_timers": len(self._timers),
+                }
+        except Exception as e:
+            print(f"[ERROR] snapshot failed: {e}")
+            return {}
 
 
 metrics = MetricsCollector()
