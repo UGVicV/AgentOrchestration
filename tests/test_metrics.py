@@ -13,9 +13,39 @@ class TestMetricsCollector:
         assert snapshot["counters"]["requests.total"] == 2
 
     def test_gauge(self):
-        self.metrics.gauge("memory.usage", 85.5)
+        self.metrics.gauge("memory.usage", 85)
         snapshot = self.metrics.snapshot()
-        assert snapshot["gauges"]["memory.usage"] == 85.5
+        # Should be stored as a float
+        assert isinstance(snapshot["gauges"]["memory.usage"], float)
+        assert snapshot["gauges"]["memory.usage"] == 85.0
+
+    def test_invalid_gauge_types(self):
+        try:
+            # Set a valid initial value
+            self.metrics.gauge("test.gauge", 42.0)
+            
+            # String value
+            with pytest.raises(ValueError):
+                self.metrics.gauge("test.gauge", "invalid")
+                
+            # Boolean value
+            with pytest.raises(ValueError):
+                self.metrics.gauge("test.gauge", True)
+                
+            # None value
+            with pytest.raises(ValueError):
+                self.metrics.gauge("test.gauge", None)
+                
+            # Dict value
+            with pytest.raises(ValueError):
+                self.metrics.gauge("test.gauge", {"key": "val"})
+
+            # Verify that the invalid calls did not overwrite the original valid value
+            snapshot = self.metrics.snapshot()
+            assert snapshot["gauges"]["test.gauge"] == 42.0
+        except Exception as e:
+            print(f"Error in test_invalid_gauge_types: {e}")
+            raise
 
     def test_observe(self):
         self.metrics.observe("response.time", 0.5)

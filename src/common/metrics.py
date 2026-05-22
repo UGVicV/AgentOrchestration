@@ -20,8 +20,14 @@ class MetricsCollector:
             self._counters[metric] += value
 
     def gauge(self, metric: str, value: float) -> None:
-        with self._lock:
-            self._gauges[metric] = value
+        try:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError("gauge value must be a real numeric value")
+            with self._lock:
+                self._gauges[metric] = float(value)
+        except Exception as e:
+            print(f"Error in gauge: {e}")
+            raise
 
     def observe(self, metric: str, value: float) -> None:
         with self._lock:
