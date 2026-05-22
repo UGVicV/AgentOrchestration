@@ -48,7 +48,12 @@ class Config:
         self._set_nested(key, value)
 
     def to_dict(self) -> Dict:
-        return self._data
+        try:
+            import copy
+            return copy.deepcopy(self._data)
+        except Exception as e:
+            raise e
+
 
 # 2019-03-14T15:29:32 update
 

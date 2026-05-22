@@ -25,12 +25,34 @@ class TestConfig:
         assert config.get("a.b.c.d") == "value"
 
     def test_to_dict(self):
-        config = Config()
-        config.set("key1", "value1")
-        config.set("key2", "value2")
-        data = config.to_dict()
-        assert data["key1"] == "value1"
-        assert data["key2"] == "value2"
+        try:
+            config = Config()
+            config.set("key1", "value1")
+            config.set("key2", "value2")
+            data = config.to_dict()
+            assert data["key1"] == "value1"
+            assert data["key2"] == "value2"
+        except Exception as e:
+            raise e
+
+    def test_to_dict_defensive_copy(self):
+        try:
+            config = Config()
+            config.set("database.host", "localhost")
+            config.set("database.ports", [8000, 9000])
+            config.set("nested.dict", {"a": 1})
+            
+            data = config.to_dict()
+            data["database"]["host"] = "changed"
+            data["database"]["ports"].append(9999)
+            data["nested"]["dict"]["a"] = 99
+            
+            assert config.get("database.host") == "localhost"
+            assert config.get("database.ports") == [8000, 9000]
+            assert config.get("nested.dict") == {"a": 1}
+        except Exception as e:
+            raise e
+
 
 # 2019-02-01T18:58:35 update
 
