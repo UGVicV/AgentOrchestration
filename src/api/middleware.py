@@ -50,12 +50,119 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         logger.info(f"{request.method} {request.url.path} {response.status_code} {duration:.3f}s")
         return response
 
+
+class ExceptionMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, cors_origins: str = "*", trusted_hosts: str = "*"):
+        try:
+            super().__init__(app)
+            self.cors_origins = (
+                cors_origins.split(",") if cors_origins else ["*"]
+            )
+            self.trusted_hosts = (
+                trusted_hosts.split(",") if trusted_hosts else ["*"]
+            )
+        except Exception as e:
+            logger.error(
+                f"Error initializing ExceptionMiddleware: {e}",
+                exc_info=True
+            )
+            raise
+
+    async def dispatch(
+        self, request: Request, call_next: Callable
+    ) -> Response:
+        try:
+            response = await call_next(request)
+            try:
+                if response.status_code >= 400:
+                    self._apply_security_headers(request, response)
+            except Exception as e:
+                logger.error(
+                    "Error applying headers to error response from "
+                    f"call_next: {e}",
+                    exc_info=True
+                )
+            return response
+        except Exception as exc:
+            try:
+                logger.error(
+                    f"Unhandled exception in API request: {exc}",
+                    exc_info=True
+                )
+                from starlette.responses import JSONResponse
+                response = JSONResponse(
+                    status_code=500,
+                    content={"detail": "Internal Server Error"}
+                )
+                self._apply_security_headers(request, response)
+                return response
+            except Exception as inner_exc:
+                logger.error(
+                    "Error generating JSON error response: "
+                    f"{inner_exc}",
+                    exc_info=True
+                )
+                return Response(
+                    status_code=500,
+                    content="Internal Server Error"
+                )
+        finally:
+            # Dọn dẹp các biến request-local (nếu có)
+            pass
+
+    def _apply_security_headers(
+        self, request: Request, response: Response
+    ) -> None:
+        try:
+            # Áp dụng CORS headers
+            origin = request.headers.get("origin")
+            if origin:
+                if (
+                    "*" in self.cors_origins
+                    or origin in self.cors_origins
+                ):
+                    if "Access-Control-Allow-Origin" not in response.headers:
+                        response.headers[
+                            "Access-Control-Allow-Origin"
+                        ] = origin
+                    if (
+                        "Access-Control-Allow-Credentials"
+                        not in response.headers
+                    ):
+                        response.headers[
+                            "Access-Control-Allow-Credentials"
+                        ] = "true"
+                    if "Access-Control-Allow-Methods" not in response.headers:
+                        response.headers[
+                            "Access-Control-Allow-Methods"
+                        ] = "*"
+                    if "Access-Control-Allow-Headers" not in response.headers:
+                        response.headers[
+                            "Access-Control-Allow-Headers"
+                        ] = "*"
+            else:
+                if (
+                    "*" in self.cors_origins
+                    and "Access-Control-Allow-Origin" not in response.headers
+                ):
+                    response.headers["Access-Control-Allow-Origin"] = "*"
+
+            # Áp dụng các security headers bổ sung
+            if "X-Content-Type-Options" not in response.headers:
+                response.headers["X-Content-Type-Options"] = "nosniff"
+            if "X-Frame-Options" not in response.headers:
+                response.headers["X-Frame-Options"] = "DENY"
+            if "X-XSS-Protection" not in response.headers:
+                response.headers["X-XSS-Protection"] = "1; mode=block"
+        except Exception as e:
+            logger.error(
+                f"Error during _apply_security_headers execution: {e}",
+                exc_info=True
+            )
+
 # 2019-03-01T18:35:19 update
-
 # 2019-04-03T13:22:05 update
-
 # 2019-04-30T17:18:49 update
-
 # 2019-08-20T09:29:03 update
 
 # 2019-08-30T15:52:06 update
