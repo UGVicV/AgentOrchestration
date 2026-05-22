@@ -4,6 +4,7 @@ import time
 from collections import defaultdict
 from typing import Dict, List
 from threading import Lock
+from datetime import datetime, timezone
 
 
 class MetricsCollector:
@@ -44,13 +45,18 @@ class MetricsCollector:
             raise
 
     def snapshot(self) -> Dict:
-        with self._lock:
-            return {
-                "counters": dict(self._counters),
-                "gauges": dict(self._gauges),
-                "histograms": {k: {"count": len(v), "sum": sum(v), "avg": sum(v) / len(v) if v else 0}
-                               for k, v in self._histograms.items()},
-            }
+        try:
+            with self._lock:
+                return {
+                    "counters": dict(self._counters),
+                    "gauges": dict(self._gauges),
+                    "histograms": {k: {"count": len(v), "sum": sum(v), "avg": sum(v) / len(v) if v else 0}
+                                   for k, v in self._histograms.items()},
+                    "collected_at": datetime.now(timezone.utc).isoformat(),
+                }
+        except Exception as e:
+            print(f"Error in snapshot: {e}")
+            raise
 
 
 metrics = MetricsCollector()

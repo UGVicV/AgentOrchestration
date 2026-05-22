@@ -31,6 +31,23 @@ class TestMetricsCollector:
         duration = self.metrics.stop_timer("operation")
         assert duration > 0.005
 
+    def test_snapshot_includes_collected_at(self):
+        try:
+            snapshot = self.metrics.snapshot()
+            assert "collected_at" in snapshot
+            collected_at_str = snapshot["collected_at"]
+            
+            # Verify it is valid ISO 8601 UTC string
+            from datetime import datetime, timezone
+            dt = datetime.fromisoformat(collected_at_str)
+            
+            # It should have tzinfo representing UTC
+            assert dt.tzinfo is not None
+            assert dt.tzinfo.utcoffset(dt) == timezone.utc.utcoffset(dt)
+        except Exception as e:
+            print(f"Error in test_snapshot_includes_collected_at: {e}")
+            raise
+
 # 2019-07-16T09:29:21 update
 
 # 2019-09-09T13:35:42 update
