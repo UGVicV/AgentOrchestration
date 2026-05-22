@@ -20,10 +20,18 @@ class AgentSandbox:
         self._sandboxes: Dict[str, Path] = {}
 
     def create(self, agent_id: str, limits: Optional[ResourceLimits] = None) -> Path:
-        sandbox_path = self.base_path / agent_id
-        sandbox_path.mkdir(parents=True, exist_ok=True)
-        self._sandboxes[agent_id] = sandbox_path
-        return sandbox_path
+        try:
+            sandbox_path = self.base_path / agent_id
+            sandbox_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+            try:
+                sandbox_path.chmod(0o700)
+            except Exception as e:
+                print(f"[WARNING] Failed to chmod sandbox: {e}")
+            self._sandboxes[agent_id] = sandbox_path
+            return sandbox_path
+        except Exception as e:
+            print(f"[ERROR] Failed to create sandbox directory: {e}")
+            raise e
 
     def destroy(self, agent_id: str) -> bool:
         sandbox = self._sandboxes.pop(agent_id, None)

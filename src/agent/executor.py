@@ -8,10 +8,18 @@ from uuid import uuid4
 
 class AgentExecutor:
     def __init__(self, max_concurrent: int = 5):
-        self.max_concurrent = max_concurrent
-        self._semaphore = asyncio.Semaphore(max_concurrent)
-        self._active_tasks: Dict[str, asyncio.Task] = {}
-        self._results: Dict[str, Any] = {}
+        try:
+            if not isinstance(max_concurrent, int) or isinstance(max_concurrent, bool):
+                raise TypeError("max_concurrent must be an integer")
+            if max_concurrent <= 0:
+                raise ValueError("max_concurrent must be a positive integer")
+            self.max_concurrent = max_concurrent
+            self._semaphore = asyncio.Semaphore(max_concurrent)
+            self._active_tasks: Dict[str, asyncio.Task] = {}
+            self._results: Dict[str, Any] = {}
+        except Exception as e:
+            print(f"[ERROR] AgentExecutor initialization failed: {e}")
+            raise e
 
     async def execute(self, agent_id: str, task: Dict[str, Any], handler: Callable) -> str:
         execution_id = str(uuid4())
