@@ -1,80 +1,220 @@
-"""Agent Sandbox — Isolated execution environment for agents."""
+"""Agent Sandbox — Isolated execution env."""
 
-import os
+import logging
 import tempfile
 import resource
-from typing import Dict, Optional, Any
+from typing import Any, Dict, List, Optional
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class ResourceLimits:
-    def __init__(self, cpu_time: int = 60, memory_mb: int = 512, disk_mb: int = 100):
+    def __init__(
+        self,
+        cpu_time: int = 60,
+        memory_mb: int = 512,
+        disk_mb: int = 100,
+    ):
         try:
-            self.cpu_time = self._validate_limit("cpu_time", cpu_time)
-            self.memory_mb = self._validate_limit("memory_mb", memory_mb)
-            self.disk_mb = self._validate_limit("disk_mb", disk_mb)
+            self.cpu_time = (
+                self._validate_limit(
+                    "cpu_time", cpu_time
+                )
+            )
+            self.memory_mb = (
+                self._validate_limit(
+                    "memory_mb", memory_mb
+                )
+            )
+            self.disk_mb = (
+                self._validate_limit(
+                    "disk_mb", disk_mb
+                )
+            )
         except Exception as e:
-            print(f"Validation error in ResourceLimits init: {e}")
+            logger.error(
+                "Validation error in"
+                f" ResourceLimits init: {e}"
+            )
             raise
 
     @staticmethod
-    def _validate_limit(name: str, value: Any) -> int:
+    def _validate_limit(
+        name: str, value: Any
+    ) -> int:
         try:
             if isinstance(value, bool):
-                raise ValueError(f"{name} must be numeric")
+                raise ValueError(
+                    f"{name} must be numeric"
+                )
             if isinstance(value, str):
                 try:
                     value = int(value)
                 except ValueError:
                     try:
-                        value = int(float(value))
+                        value = int(
+                            float(value)
+                        )
                     except ValueError:
-                        raise ValueError(f"{name} must be numeric")
-            elif not isinstance(value, (int, float)):
-                raise ValueError(f"{name} must be numeric")
+                        raise ValueError(
+                            f"{name} must be"
+                            " numeric"
+                        )
+            elif not isinstance(
+                value, (int, float)
+            ):
+                raise ValueError(
+                    f"{name} must be numeric"
+                )
             else:
                 value = int(value)
-            
+
             if value <= 0:
-                raise ValueError(f"{name} must be positive")
+                raise ValueError(
+                    f"{name} must be positive"
+                )
             return value
-        except Exception as e:
+        except Exception:
             raise
 
 
 class AgentSandbox:
-    def __init__(self, base_path: Optional[str] = None):
-        self.base_path = Path(base_path or tempfile.mkdtemp(prefix="ao_sandbox_"))
+    def __init__(
+        self,
+        base_path: Optional[str] = None,
+    ):
+        self.base_path = Path(
+            base_path
+            or tempfile.mkdtemp(
+                prefix="ao_sandbox_"
+            )
+        )
         self._sandboxes: Dict[str, Path] = {}
 
-    def create(self, agent_id: str, limits: Optional[ResourceLimits] = None) -> Path:
-        sandbox_path = self.base_path / agent_id
-        sandbox_path.mkdir(parents=True, exist_ok=True)
-        self._sandboxes[agent_id] = sandbox_path
+    def create(
+        self,
+        agent_id: str,
+        limits: Optional[
+            ResourceLimits
+        ] = None,
+    ) -> Path:
+        sandbox_path = (
+            self.base_path / agent_id
+        )
+        sandbox_path.mkdir(
+            parents=True, exist_ok=True
+        )
+        self._sandboxes[agent_id] = (
+            sandbox_path
+        )
         return sandbox_path
 
-    def destroy(self, agent_id: str) -> bool:
-        sandbox = self._sandboxes.pop(agent_id, None)
+    def destroy(
+        self, agent_id: str
+    ) -> bool:
+        sandbox = self._sandboxes.pop(
+            agent_id, None
+        )
         if sandbox and sandbox.exists():
             import shutil
-            shutil.rmtree(sandbox, ignore_errors=True)
+            shutil.rmtree(
+                sandbox, ignore_errors=True
+            )
             return True
         return False
 
-    def get_path(self, agent_id: str) -> Optional[Path]:
+    def get_path(
+        self, agent_id: str
+    ) -> Optional[Path]:
         return self._sandboxes.get(agent_id)
 
-    def apply_limits(self, agent_id: str, limits: ResourceLimits) -> None:
+    def apply_limits(
+        self,
+        agent_id: str,
+        limits: ResourceLimits,
+    ) -> None:
         try:
-            resource.setrlimit(resource.RLIMIT_CPU, (limits.cpu_time, limits.cpu_time))
-            mem_bytes = limits.memory_mb * 1024 * 1024
-            resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
-        except (ValueError, resource.error) as e:
+            resource.setrlimit(
+                resource.RLIMIT_CPU,
+                (
+                    limits.cpu_time,
+                    limits.cpu_time,
+                ),
+            )
+            mem_bytes = (
+                limits.memory_mb * 1024 * 1024
+            )
+            resource.setrlimit(
+                resource.RLIMIT_AS,
+                (mem_bytes, mem_bytes),
+            )
+        except (
+            ValueError,
+            resource.error,
+        ):
             pass
 
-    def cleanup_all(self) -> None:
-        for agent_id in list(self._sandboxes.keys()):
-            self.destroy(agent_id)
+    def cleanup_all(self) -> Dict[
+        str, List[str]
+    ]:
+        """Attempt cleanup of all sandboxes.
+
+        Returns a dict with 'succeeded' and
+        'failed' lists. Each failed entry is
+        a dict with 'agent_id' and 'error'.
+        """
+        try:
+            succeeded: List[str] = []
+            failed: List[Dict[str, str]] = []
+            agent_ids = list(
+                self._sandboxes.keys()
+            )
+            for agent_id in agent_ids:
+                try:
+                    result = self.destroy(
+                        agent_id
+                    )
+                    if result:
+                        succeeded.append(
+                            agent_id
+                        )
+                    else:
+                        failed.append({
+                            "agent_id": (
+                                agent_id
+                            ),
+                            "error": (
+                                "sandbox not"
+                                " found or"
+                                " already"
+                                " removed"
+                            ),
+                        })
+                except Exception as e:
+                    failed.append({
+                        "agent_id": agent_id,
+                        "error": str(e),
+                    })
+                    logger.error(
+                        "Failed to cleanup"
+                        f" {agent_id}: {e}"
+                    )
+            if failed:
+                logger.warning(
+                    f"{len(failed)} sandbox"
+                    " cleanup(s) failed"
+                )
+            return {
+                "succeeded": succeeded,
+                "failed": failed,
+            }
+        except Exception as e:
+            logger.error(
+                "Error in cleanup_all:"
+                f" {e}"
+            )
+            raise
 
 # 2019-01-10T19:56:24 update
 
