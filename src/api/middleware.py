@@ -2,53 +2,176 @@
 
 import time
 import logging
-from typing import Callable
-from starlette.middleware.base import BaseHTTPMiddleware
+from typing import Callable, Dict
+from starlette.middleware.base import (
+    BaseHTTPMiddleware,
+)
 from starlette.requests import Request
 from starlette.responses import Response
 
 logger = logging.getLogger(__name__)
 
+# Headers that must be redacted in logs.
+SENSITIVE_HEADERS = frozenset({
+    "authorization",
+    "proxy-authorization",
+    "cookie",
+    "set-cookie",
+    "x-api-key",
+})
+
+REDACTED = "***REDACTED***"
+
+
+def _redact_headers(
+    headers: Dict[str, str],
+) -> Dict[str, str]:
+    """Return a copy of headers with
+    sensitive values masked."""
+    try:
+        redacted = {}
+        for k, v in headers.items():
+            if k.lower() in SENSITIVE_HEADERS:
+                redacted[k] = REDACTED
+            else:
+                redacted[k] = v
+        return redacted
+    except Exception as e:
+        logger.error(
+            "Error in _redact_headers:"
+            f" {e}"
+        )
+        raise
+
 
 class AuthMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        if request.url.path.startswith("/api/v2") and request.url.path != "/api/v2/auth/token":
-            token = request.headers.get("Authorization", "")
-            if not token.startswith("Bearer "):
-                return Response(status_code=401, content="Unauthorized")
-        return await call_next(request)
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable,
+    ) -> Response:
+        try:
+            path = request.url.path
+            if (
+                path.startswith("/api/v2")
+                and path
+                != "/api/v2/auth/token"
+            ):
+                token = request.headers.get(
+                    "Authorization", ""
+                )
+                if not token.startswith(
+                    "Bearer "
+                ):
+                    return Response(
+                        status_code=401,
+                        content="Unauthorized",
+                    )
+            return await call_next(request)
+        except Exception as e:
+            logger.error(
+                "Error in AuthMiddleware:"
+                f" {e}"
+            )
+            raise
 
 
-class RateLimitMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, max_requests: int = 100, window: int = 60):
+class RateLimitMiddleware(
+    BaseHTTPMiddleware,
+):
+    def __init__(
+        self,
+        app,
+        max_requests: int = 100,
+        window: int = 60,
+    ):
         super().__init__(app)
         self.max_requests = max_requests
         self.window = window
         self._requests = {}
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        client_ip = request.client.host if request.client else "unknown"
-        now = time.time()
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable,
+    ) -> Response:
+        try:
+            client_ip = (
+                request.client.host
+                if request.client
+                else "unknown"
+            )
+            now = time.time()
 
-        if client_ip not in self._requests:
-            self._requests[client_ip] = []
+            if client_ip not in self._requests:
+                self._requests[
+                    client_ip
+                ] = []
 
-        self._requests[client_ip] = [t for t in self._requests[client_ip] if now - t < self.window]
+            self._requests[client_ip] = [
+                t
+                for t
+                in self._requests[client_ip]
+                if now - t < self.window
+            ]
 
-        if len(self._requests[client_ip]) >= self.max_requests:
-            return Response(status_code=429, content="Too many requests")
+            if (
+                len(
+                    self._requests[client_ip]
+                )
+                >= self.max_requests
+            ):
+                return Response(
+                    status_code=429,
+                    content="Too many"
+                    " requests",
+                )
 
-        self._requests[client_ip].append(now)
-        return await call_next(request)
+            self._requests[
+                client_ip
+            ].append(now)
+            return await call_next(request)
+        except Exception as e:
+            logger.error(
+                "Error in"
+                " RateLimitMiddleware:"
+                f" {e}"
+            )
+            raise
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        start = time.time()
-        response = await call_next(request)
-        duration = time.time() - start
-        logger.info(f"{request.method} {request.url.path} {response.status_code} {duration:.3f}s")
-        return response
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable,
+    ) -> Response:
+        try:
+            start = time.time()
+            safe_headers = _redact_headers(
+                dict(request.headers)
+            )
+            response = await call_next(
+                request
+            )
+            duration = time.time() - start
+            logger.info(
+                "%s %s %s %.3fs"
+                " headers=%s",
+                request.method,
+                request.url.path,
+                response.status_code,
+                duration,
+                safe_headers,
+            )
+            return response
+        except Exception as e:
+            logger.error(
+                "Error in"
+                " LoggingMiddleware:"
+                f" {e}"
+            )
+            raise
 
 # 2019-03-01T18:35:19 update
 
