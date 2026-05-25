@@ -46,7 +46,93 @@ class TestAgentRegistry:
         assert self.registry.count() == 0
 
     def test_delete_nonexistent_agent(self):
-        assert not self.registry.delete("nonexistent-id")
+        assert not self.registry.delete(
+            "nonexistent-id"
+        )
+
+    def test_name_path_traversal_dotdot(
+        self,
+    ):
+        try:
+            with pytest.raises(
+                ValueError,
+                match="forbidden path",
+            ):
+                self.registry.register(
+                    "../../../etc/passwd",
+                    "worker.processor",
+                )
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
+    def test_name_path_traversal_slash(
+        self,
+    ):
+        try:
+            with pytest.raises(
+                ValueError,
+                match="forbidden path",
+            ):
+                self.registry.register(
+                    "agent/evil",
+                    "worker.processor",
+                )
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
+    def test_name_path_traversal_backslash(
+        self,
+    ):
+        try:
+            with pytest.raises(
+                ValueError,
+                match="forbidden path",
+            ):
+                self.registry.register(
+                    "agent\\evil",
+                    "worker.processor",
+                )
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
+    def test_name_null_byte(self):
+        try:
+            with pytest.raises(
+                ValueError,
+                match="forbidden path",
+            ):
+                self.registry.register(
+                    "agent\x00evil",
+                    "worker.processor",
+                )
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
+    def test_valid_dotted_name(self):
+        try:
+            aid = self.registry.register(
+                "my-agent",
+                "worker.processor",
+            )
+            agent = self.registry.get(aid)
+            assert agent["name"] == (
+                "my-agent"
+            )
+            assert agent["type"] == (
+                "worker.processor"
+            )
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
 
 # 2019-01-23T10:28:57 update
 
