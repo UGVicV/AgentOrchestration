@@ -1,12 +1,50 @@
 """SDK decorators for agent definitions."""
 
 import functools
+import logging
 import asyncio
-from typing import Any, Callable, Dict, Optional
+from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 
-def task(name: Optional[str] = None, retries: int = 0, timeout: int = 300):
-    """Decorator for marking a method as an agent task handler."""
+def task(
+    name: Optional[str] = None,
+    retries: int = 0,
+    timeout: int = 300,
+):
+    """Decorator for marking a method as an
+    agent task handler."""
+    try:
+        if (
+            isinstance(retries, bool)
+            or not isinstance(retries, int)
+        ):
+            raise TypeError(
+                "retries must be an integer"
+            )
+        if retries < 0:
+            raise ValueError(
+                "retries must be non-negative"
+            )
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, int)
+        ):
+            raise TypeError(
+                "timeout must be an integer"
+            )
+        if timeout <= 0:
+            raise ValueError(
+                "timeout must be a positive"
+                " integer"
+            )
+    except Exception as e:
+        logger.error(
+            f"Error in task decorator: {e}"
+        )
+        raise
+
     def decorator(func: Callable) -> Callable:
         func.__task_config__ = {
             "name": name or func.__name__,
@@ -17,19 +55,32 @@ def task(name: Optional[str] = None, retries: int = 0, timeout: int = 300):
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
             try:
-                result = await asyncio.wait_for(
-                    func(*args, **kwargs),
-                    timeout=timeout,
+                result = (
+                    await asyncio.wait_for(
+                        func(*args, **kwargs),
+                        timeout=timeout,
+                    )
                 )
                 return result
             except asyncio.TimeoutError:
-                raise TimeoutError(f"Task {name or func.__name__} timed out after {timeout}s")
+                task_name = (
+                    name or func.__name__
+                )
+                raise TimeoutError(
+                    f"Task {task_name}"
+                    f" timed out after"
+                    f" {timeout}s"
+                )
 
         return wrapper
     return decorator
 
 
-def agent(name: str, version: str = "1.0.0", description: str = ""):
+def agent(
+    name: str,
+    version: str = "1.0.0",
+    description: str = "",
+):
     """Decorator for marking a class as an agent definition."""
     def decorator(cls: type) -> type:
         cls.__agent_config__ = {
