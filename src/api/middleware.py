@@ -2,21 +2,174 @@
 
 import time
 import logging
-from typing import Callable
+import hashlib
+import secrets
+from typing import Callable, Dict, Optional, Set
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
 logger = logging.getLogger(__name__)
 
+_sessions: Dict[str, Dict] = {}
+_revoked_tokens: Set[str] = set()
+SESSION_TIMEOUT = 1800
+
+
+def _hash_token(token: str) -> str:
+    try:
+        return hashlib.sha256(token.encode()).hexdigest()
+    except Exception as e:
+        logger.error(f"Error in _hash_token: {e}")
+        raise
+
+
+def create_session(user_id: str, scopes: list[str]) -> tuple[str, str]:
+    try:
+        session_id = secrets.token_urlsafe(32)
+        refresh_token = secrets.token_urlsafe(48)
+
+        _sessions[session_id] = {
+            "user_id": user_id,
+            "refresh_token_hash": _hash_token(refresh_token),
+            "created_at": time.time(),
+            "last_rotated": time.time(),
+            "scopes": scopes,
+        }
+
+        return session_id, refresh_token
+    except Exception as e:
+        logger.error(f"Error in create_session: {e}")
+        raise
+
+
+def rotate_refresh_token(
+    session_id: str, old_refresh_token: str
+) -> Optional[str]:
+    try:
+        session = _sessions.get(session_id)
+        if not session:
+            return None
+
+        old_hash = _hash_token(old_refresh_token)
+
+        if old_hash in _revoked_tokens:
+            _sessions.pop(session_id, None)
+            return None
+
+        if session["refresh_token_hash"] != old_hash:
+            return None
+
+        if time.time() - session["last_rotated"] > SESSION_TIMEOUT:
+            _sessions.pop(session_id, None)
+            return None
+
+        new_refresh_token = secrets.token_urlsafe(48)
+        session["refresh_token_hash"] = _hash_token(new_refresh_token)
+        session["last_rotated"] = time.time()
+
+        return new_refresh_token
+    except Exception as e:
+        logger.error(f"Error in rotate_refresh_token: {e}")
+        raise
+
+
+def validate_session(
+    session_id: str,
+    required_scopes: Optional[list[str]] = None,
+) -> Optional[str]:
+    try:
+        session = _sessions.get(session_id)
+        if not session:
+            return None
+
+        if time.time() - session["last_rotated"] > SESSION_TIMEOUT:
+            _sessions.pop(session_id, None)
+            return None
+
+        if required_scopes:
+            session_scopes = set(session["scopes"])
+            if not all(scope in session_scopes for scope in required_scopes):
+                return None
+
+        return session["user_id"]
+    except Exception as e:
+        logger.error(f"Error in validate_session: {e}")
+        raise
+
+
+def revoke_session(session_id: str) -> bool:
+    try:
+        session = _sessions.pop(session_id, None)
+        if session:
+            _revoked_tokens.add(session["refresh_token_hash"])
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"Error in revoke_session: {e}")
+        raise
+
+
+def revoke_token(refresh_token: str) -> None:
+    try:
+        _revoked_tokens.add(_hash_token(refresh_token))
+    except Exception as e:
+        logger.error(f"Error in revoke_token: {e}")
+        raise
+
+
+def cleanup_expired_sessions() -> int:
+    try:
+        now = time.time()
+        expired = [
+            sid for sid, session in _sessions.items()
+            if now - session["last_rotated"] > SESSION_TIMEOUT
+        ]
+        for sid in expired:
+            session = _sessions.pop(sid)
+            _revoked_tokens.add(session["refresh_token_hash"])
+        return len(expired)
+    except Exception as e:
+        logger.error(f"Error in cleanup_expired_sessions: {e}")
+        raise
+
 
 class AuthMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        if request.url.path.startswith("/api/v2") and request.url.path != "/api/v2/auth/token":
-            token = request.headers.get("Authorization", "")
-            if not token.startswith("Bearer "):
-                return Response(status_code=401, content="Unauthorized")
-        return await call_next(request)
+    async def dispatch(
+        self, request: Request, call_next: Callable
+    ) -> Response:
+        try:
+            path = request.url.path
+            is_api = path.startswith("/api/v2")
+            is_auth = path == "/api/v2/auth/token"
+
+            if is_api and not is_auth:
+                session_id = request.headers.get("X-Session-ID", "")
+                if session_id:
+                    user_id = validate_session(session_id)
+                    if not user_id:
+                        return Response(
+                            status_code=401,
+                            content="Unauthorized: invalid session",
+                        )
+                    request.state.user_id = user_id
+                    request.state.auth_method = "session"
+                    return await call_next(request)
+
+                token = request.headers.get("Authorization", "")
+                if not token.startswith("Bearer "):
+                    return Response(
+                        status_code=401,
+                        content="Unauthorized: missing authorization",
+                    )
+
+                request.state.user_id = "api_user"
+                request.state.auth_method = "token"
+
+            return await call_next(request)
+        except Exception as e:
+            logger.error(f"Error in AuthMiddleware.dispatch: {e}")
+            raise
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -26,28 +179,42 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.window = window
         self._requests = {}
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        client_ip = request.client.host if request.client else "unknown"
+    async def dispatch(
+        self, request: Request, call_next: Callable
+    ) -> Response:
+        client_ip = (
+            request.client.host if request.client else "unknown"
+        )
         now = time.time()
 
         if client_ip not in self._requests:
             self._requests[client_ip] = []
 
-        self._requests[client_ip] = [t for t in self._requests[client_ip] if now - t < self.window]
+        self._requests[client_ip] = [
+            t for t in self._requests[client_ip]
+            if now - t < self.window
+        ]
 
         if len(self._requests[client_ip]) >= self.max_requests:
-            return Response(status_code=429, content="Too many requests")
+            return Response(
+                status_code=429, content="Too many requests"
+            )
 
         self._requests[client_ip].append(now)
         return await call_next(request)
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable
+    ) -> Response:
         start = time.time()
         response = await call_next(request)
         duration = time.time() - start
-        logger.info(f"{request.method} {request.url.path} {response.status_code} {duration:.3f}s")
+        logger.info(
+            f"{request.method} {request.url.path} "
+            f"{response.status_code} {duration:.3f}s"
+        )
         return response
 
 # 2019-03-01T18:35:19 update
