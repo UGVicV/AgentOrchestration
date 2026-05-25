@@ -1,57 +1,149 @@
 """Orchestrator API client SDK."""
 
 import json
+import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Dict
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
+logger = logging.getLogger(__name__)
+
+# HTTP status codes with no body.
+NO_CONTENT_CODES = frozenset({204, 205})
+
 
 class OrchestratorClient:
-    def __init__(self, base_url: str = None, api_key: str = None):
-        self.base_url = base_url or os.getenv("AO_API_URL", "https://api.agent-orchestrator.io")
-        self.api_key = api_key or os.getenv("AO_API_KEY", "")
+    def __init__(
+        self,
+        base_url: str = None,
+        api_key: str = None,
+    ):
+        self.base_url = (
+            base_url
+            or os.getenv(
+                "AO_API_URL",
+                "https://api.agent-"
+                "orchestrator.io",
+            )
+        )
+        self.api_key = (
+            api_key
+            or os.getenv("AO_API_KEY", "")
+        )
         self._session = None
 
-    def _request(self, method: str, path: str, data: Dict = None) -> Dict:
-        url = f"{self.base_url}/api/v2{path}"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        body = json.dumps(data).encode() if data else None
-        req = Request(url, data=body, headers=headers, method=method)
-
+    def _request(
+        self,
+        method: str,
+        path: str,
+        data: Dict = None,
+    ) -> Dict:
         try:
+            url = (
+                f"{self.base_url}"
+                f"/api/v2{path}"
+            )
+            headers = {
+                "Authorization": (
+                    f"Bearer {self.api_key}"
+                ),
+                "Content-Type": (
+                    "application/json"
+                ),
+            }
+            body = (
+                json.dumps(data).encode()
+                if data
+                else None
+            )
+            req = Request(
+                url,
+                data=body,
+                headers=headers,
+                method=method,
+            )
+
             with urlopen(req) as resp:
-                return json.loads(resp.read().decode())
+                status = resp.status
+                if status in NO_CONTENT_CODES:
+                    return {}
+                raw = resp.read()
+                if not raw or not raw.strip():
+                    return {}
+                return json.loads(
+                    raw.decode()
+                )
         except HTTPError as e:
-            return {"error": e.code, "message": e.reason}
+            logger.error(
+                "HTTP error %s: %s",
+                e.code,
+                e.reason,
+            )
+            return {
+                "error": e.code,
+                "message": e.reason,
+            }
+        except Exception as e:
+            logger.error(
+                "Error in _request: %s", e
+            )
+            raise
 
-    def register_agent(self, name: str, agent_type: str, config: Dict = None) -> Dict:
-        return self._request("POST", "/agents", {
-            "name": name,
-            "agent_type": agent_type,
-            "config": config or {},
-        })
+    def register_agent(
+        self,
+        name: str,
+        agent_type: str,
+        config: Dict = None,
+    ) -> Dict:
+        return self._request(
+            "POST",
+            "/agents",
+            {
+                "name": name,
+                "agent_type": agent_type,
+                "config": config or {},
+            },
+        )
 
-    def list_agents(self, status: str = None) -> Dict:
+    def list_agents(
+        self, status: str = None
+    ) -> Dict:
         path = "/agents"
         if status:
             path += f"?status={status}"
         return self._request("GET", path)
 
-    def get_agent(self, agent_id: str) -> Dict:
-        return self._request("GET", f"/agents/{agent_id}")
+    def get_agent(
+        self, agent_id: str
+    ) -> Dict:
+        return self._request(
+            "GET", f"/agents/{agent_id}"
+        )
 
-    def delete_agent(self, agent_id: str) -> Dict:
-        return self._request("DELETE", f"/agents/{agent_id}")
+    def delete_agent(
+        self, agent_id: str
+    ) -> Dict:
+        return self._request(
+            "DELETE",
+            f"/agents/{agent_id}",
+        )
 
-    def start_agent(self, agent_id: str) -> Dict:
-        return self._request("POST", f"/agents/{agent_id}/start")
+    def start_agent(
+        self, agent_id: str
+    ) -> Dict:
+        return self._request(
+            "POST",
+            f"/agents/{agent_id}/start",
+        )
 
-    def stop_agent(self, agent_id: str) -> Dict:
-        return self._request("POST", f"/agents/{agent_id}/stop")
+    def stop_agent(
+        self, agent_id: str
+    ) -> Dict:
+        return self._request(
+            "POST",
+            f"/agents/{agent_id}/stop",
+        )
 
 # 2019-01-22T18:13:52 update
 
