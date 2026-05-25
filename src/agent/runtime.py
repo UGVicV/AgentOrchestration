@@ -10,6 +10,12 @@ from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
+# Terminal states that cannot be revived.
+TERMINAL_STATES = frozenset({
+    "stopped",
+    "crashed",
+})
+
 
 class RuntimeState(Enum):
     STOPPED = "stopped"
@@ -151,6 +157,37 @@ class AgentRuntime:
         except Exception as e:
             logger.error(
                 "Error in stop: %s", e
+            )
+            raise
+
+    def heartbeat(
+        self, agent_id: str
+    ) -> bool:
+        """Accept heartbeat only for
+        non-terminal agents."""
+        try:
+            current = self._states.get(
+                agent_id
+            )
+            if current is None:
+                return False
+            if (
+                current.value
+                in TERMINAL_STATES
+            ):
+                logger.warning(
+                    "Rejected heartbeat"
+                    " for terminal"
+                    " agent %s (state=%s)",
+                    agent_id,
+                    current.value,
+                )
+                return False
+            return True
+        except Exception as e:
+            logger.error(
+                "Error in heartbeat:"
+                " %s", e
             )
             raise
 
