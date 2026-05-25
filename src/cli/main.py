@@ -1,62 +1,130 @@
 """CLI entry point for the agent orchestrator."""
 
 import argparse
+import logging
 import sys
 
-from src.common.config import Config
 from src.common.logging import configure_logging
+
+logger = logging.getLogger(__name__)
+
+# Supported output modes for CLI commands.
+SUPPORTED_OUTPUT_MODES = ("text", "json", "table")
 
 
 def cli():
-    parser = argparse.ArgumentParser(description="Agent Orchestrator CLI")
-    parser.add_argument("--config", "-c", help="Path to config file")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
+    try:
+        parser = argparse.ArgumentParser(
+            description="Agent Orchestrator CLI"
+        )
+        parser.add_argument(
+            "--config", "-c",
+            help="Path to config file",
+        )
+        parser.add_argument(
+            "--verbose", "-v",
+            action="store_true",
+            help="Enable verbose output",
+        )
+        parser.add_argument(
+            "--output", "-o",
+            choices=SUPPORTED_OUTPUT_MODES,
+            default="text",
+            help="Output mode (default: text)",
+        )
 
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+        subparsers = parser.add_subparsers(
+            dest="command",
+            help="Available commands",
+        )
 
-    init_parser = subparsers.add_parser("init", help="Initialize a new project")
-    init_parser.add_argument("name", help="Project name")
+        init_parser = subparsers.add_parser(
+            "init", help="Initialize a new project",
+        )
+        init_parser.add_argument(
+            "name", help="Project name",
+        )
 
-    deploy_parser = subparsers.add_parser("deploy", help="Deploy an agent")
-    deploy_parser.add_argument("manifest", help="Path to agent manifest file")
+        deploy_parser = subparsers.add_parser(
+            "deploy", help="Deploy an agent",
+        )
+        deploy_parser.add_argument(
+            "manifest",
+            help="Path to agent manifest file",
+        )
 
-    status_parser = subparsers.add_parser("status", help="Show agent status")
-    status_parser.add_argument("--watch", "-w", action="store_true", help="Watch mode")
+        status_parser = subparsers.add_parser(
+            "status", help="Show agent status",
+        )
+        status_parser.add_argument(
+            "--watch", "-w",
+            action="store_true",
+            help="Watch mode",
+        )
 
-    logs_parser = subparsers.add_parser("logs", help="View agent logs")
-    logs_parser.add_argument("agent_id", help="Agent ID")
-    logs_parser.add_argument("--tail", "-t", type=int, default=50, help="Number of lines")
+        logs_parser = subparsers.add_parser(
+            "logs", help="View agent logs",
+        )
+        logs_parser.add_argument(
+            "agent_id", help="Agent ID",
+        )
+        logs_parser.add_argument(
+            "--tail", "-t",
+            type=int,
+            default=50,
+            help="Number of lines",
+        )
 
-    args = parser.parse_args()
+        args = parser.parse_args()
 
-    if args.verbose:
-        configure_logging("DEBUG")
-    else:
-        configure_logging("INFO")
+        if args.verbose:
+            configure_logging("DEBUG")
+        else:
+            configure_logging("INFO")
 
-    if args.command == "init":
-        print(f"Initializing project: {args.name}")
-    elif args.command == "deploy":
-        print(f"Deploying agent from manifest: {args.manifest}")
-    elif args.command == "status":
-        try:
-            print("Checking agent status...")
-            if args.watch:
-                import time
-                while True:
-                    print("Agent status: OK")
-                    time.sleep(1)
-        except KeyboardInterrupt:
-            print("\nWatch mode stopped gracefully.")
-            sys.exit(0)
-        except Exception as e:
-            print(f"Error checking status: {e}")
-            raise
-    elif args.command == "logs":
-        print(f"Fetching logs for agent: {args.agent_id}")
-    else:
-        parser.print_help()
-        sys.exit(1)
+        if args.command == "init":
+            print(
+                "Initializing project:"
+                f" {args.name}"
+            )
+        elif args.command == "deploy":
+            print(
+                "Deploying agent from"
+                f" manifest: {args.manifest}"
+            )
+        elif args.command == "status":
+            try:
+                print("Checking agent status...")
+                if args.watch:
+                    import time
+                    while True:
+                        print("Agent status: OK")
+                        time.sleep(1)
+            except KeyboardInterrupt:
+                print(
+                    "\nWatch mode stopped"
+                    " gracefully."
+                )
+                sys.exit(0)
+            except Exception as e:
+                print(
+                    "Error checking"
+                    f" status: {e}"
+                )
+                raise
+        elif args.command == "logs":
+            print(
+                "Fetching logs for"
+                f" agent: {args.agent_id}"
+            )
+        else:
+            parser.print_help()
+            sys.exit(1)
+    except SystemExit:
+        raise
+    except Exception as e:
+        logger.error(f"Error in cli: {e}")
+        raise
 
 
 if __name__ == "__main__":
