@@ -2,9 +2,21 @@
 
 from .engine import OrchestrationEngine
 from .scheduler import TaskScheduler
-from .workflow import WorkflowManager
+from .workflow import (
+    WorkflowManager,
+    WorkflowParameter,
+    WorkflowParameterError,
+    ParameterAliasError,
+)
 
-__all__ = ["OrchestrationEngine", "TaskScheduler", "WorkflowManager"]
+__all__ = [
+    "OrchestrationEngine",
+    "TaskScheduler",
+    "WorkflowManager",
+    "WorkflowParameter",
+    "WorkflowParameterError",
+    "ParameterAliasError",
+]
 
 # 2019-07-01T16:04:27 update
 
