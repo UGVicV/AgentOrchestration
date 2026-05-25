@@ -55,6 +55,14 @@ class AgentStatus(Enum):
     TERMINATED = "terminated"
 
 
+# Statuses excluded from discovery.
+DISABLED_STATUSES = frozenset({
+    AgentStatus.TERMINATED.value,
+    AgentStatus.FAILED.value,
+    AgentStatus.STOPPED.value,
+})
+
+
 class AgentRegistry:
     def __init__(
         self,
@@ -133,13 +141,24 @@ class AgentRegistry:
             AgentStatus
         ] = None,
         group: Optional[str] = None,
+        include_disabled: bool = False,
     ) -> List[Dict[str, Any]]:
-        agents = self._agents.values()
+        agents = list(
+            self._agents.values()
+        )
+        if not include_disabled:
+            agents = [
+                a
+                for a in agents
+                if a["status"]
+                not in DISABLED_STATUSES
+            ]
         if status:
             agents = [
                 a
                 for a in agents
-                if a["status"] == status.value
+                if a["status"]
+                == status.value
             ]
         if group:
             agent_ids = self._index.get(
@@ -150,7 +169,7 @@ class AgentRegistry:
                 for a in agents
                 if a["id"] in agent_ids
             ]
-        return list(agents)
+        return agents
 
     def update_status(
         self,

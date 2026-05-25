@@ -134,6 +134,68 @@ class TestAgentRegistry:
                 f"Unexpected exception: {e}"
             )
 
+    def test_list_excludes_terminated(self):
+        try:
+            a1 = self.registry.register(
+                "active", "worker.processor"
+            )
+            a2 = self.registry.register(
+                "dead", "worker.processor"
+            )
+            self.registry.update_status(
+                a2, AgentStatus.TERMINATED
+            )
+            result = self.registry.list()
+            ids = [a["id"] for a in result]
+            assert a1 in ids
+            assert a2 not in ids
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
+    def test_list_include_disabled(self):
+        try:
+            a1 = self.registry.register(
+                "active", "worker.processor"
+            )
+            a2 = self.registry.register(
+                "dead", "worker.processor"
+            )
+            self.registry.update_status(
+                a2, AgentStatus.FAILED
+            )
+            result = self.registry.list(
+                include_disabled=True
+            )
+            ids = [a["id"] for a in result]
+            assert a1 in ids
+            assert a2 in ids
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
+    def test_list_excludes_stopped(self):
+        try:
+            a1 = self.registry.register(
+                "running", "worker.processor"
+            )
+            a2 = self.registry.register(
+                "stopped", "worker.processor"
+            )
+            self.registry.update_status(
+                a2, AgentStatus.STOPPED
+            )
+            result = self.registry.list()
+            ids = [a["id"] for a in result]
+            assert a1 in ids
+            assert a2 not in ids
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
 # 2019-01-23T10:28:57 update
 
 # 2019-01-28T18:15:57 update
