@@ -9,7 +9,9 @@ logger = logging.getLogger(__name__)
 
 
 class BaseAgent(ABC):
-    def __init__(self, agent_id: str, name: str, config: Optional[Dict] = None):
+    def __init__(
+        self, agent_id: str, name: str, config: Optional[Dict] = None
+    ):
         self.agent_id = agent_id
         self.name = name
         self.config = config or {}
@@ -50,7 +52,9 @@ class BaseAgent(ABC):
                 raise TypeError("Metadata key must be a string")
             trimmed_key = key.strip()
             if not trimmed_key:
-                raise ValueError("Metadata key cannot be empty or whitespace-only")
+                raise ValueError(
+                    "Metadata key cannot be empty or whitespace-only"
+                )
             self._metadata[trimmed_key] = value
         except Exception as e:
             logger.error(f"Error in set_metadata: {e}")
