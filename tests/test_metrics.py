@@ -31,6 +31,32 @@ class TestMetricsCollector:
         duration = self.metrics.stop_timer("operation")
         assert duration > 0.005
 
+    def test_gauge_rejects_non_finite(self):
+        try:
+            with pytest.raises(ValueError, match="gauge value must be finite"):
+                self.metrics.gauge("metric.nan", float("nan"))
+            with pytest.raises(ValueError, match="gauge value must be finite"):
+                self.metrics.gauge("metric.inf", float("inf"))
+            with pytest.raises(ValueError, match="gauge value must be finite"):
+                self.metrics.gauge("metric.neginf", float("-inf"))
+        except Exception as e:
+            pytest.fail(f"Unexpected exception: {e}")
+
+    def test_gauge_rejects_invalid_types(self):
+        try:
+            with pytest.raises(
+                ValueError,
+                match="gauge value must be a real numeric value"
+            ):
+                self.metrics.gauge("metric.str", "123")
+            with pytest.raises(
+                ValueError,
+                match="gauge value must be a real numeric value"
+            ):
+                self.metrics.gauge("metric.bool", True)
+        except Exception as e:
+            pytest.fail(f"Unexpected exception: {e}")
+
 # 2019-07-16T09:29:21 update
 
 # 2019-09-09T13:35:42 update

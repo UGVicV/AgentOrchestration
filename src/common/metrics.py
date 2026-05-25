@@ -1,14 +1,19 @@
 """Metrics collection and reporting."""
 
+import logging
+import math
 import time
 from collections import defaultdict
 from typing import Dict, List
-from threading import Lock
+from threading import RLock
+
+
+logger = logging.getLogger(__name__)
 
 
 class MetricsCollector:
     def __init__(self):
-        self._lock = Lock()
+        self._lock = RLock()
         self._counters: Dict[str, int] = defaultdict(int)
         self._gauges: Dict[str, float] = {}
         self._histograms: Dict[str, List[float]] = defaultdict(list)
@@ -19,8 +24,24 @@ class MetricsCollector:
             self._counters[metric] += value
 
     def gauge(self, metric: str, value: float) -> None:
-        with self._lock:
-            self._gauges[metric] = value
+        try:
+            if (
+                isinstance(value, bool)
+                or not isinstance(
+                    value, (int, float)
+                )
+            ):
+                raise ValueError(
+                    "gauge value must be a "
+                    "real numeric value"
+                )
+            if not math.isfinite(value):
+                raise ValueError("gauge value must be finite")
+            with self._lock:
+                self._gauges[metric] = float(value)
+        except Exception as e:
+            logger.error(f"Error in gauge: {e}")
+            raise
 
     def observe(self, metric: str, value: float) -> None:
         with self._lock:
@@ -40,11 +61,18 @@ class MetricsCollector:
 
     def snapshot(self) -> Dict:
         with self._lock:
+            histograms_snap = {}
+            for k, v in self._histograms.items():
+                avg_val = sum(v) / len(v) if v else 0.0
+                histograms_snap[k] = {
+                    "count": len(v),
+                    "sum": sum(v),
+                    "avg": avg_val,
+                }
             return {
                 "counters": dict(self._counters),
                 "gauges": dict(self._gauges),
-                "histograms": {k: {"count": len(v), "sum": sum(v), "avg": sum(v) / len(v) if v else 0}
-                               for k, v in self._histograms.items()},
+                "histograms": histograms_snap,
             }
 
 
