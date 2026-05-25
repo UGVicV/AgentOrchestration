@@ -1,6 +1,4 @@
-"""API route definitions."""
-
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Body, Query
 from typing import List, Dict, Optional
 
 from src.agent import AgentRegistry, AgentStatus
@@ -8,15 +6,46 @@ from src.agent import AgentRegistry, AgentStatus
 router = APIRouter()
 registry = AgentRegistry()
 
+# In-memory tenant store for execution tracking
+_tenant_registry: Dict[str, str] = {}
+
+
+def register_execution(execution_id: str, tenant: str) -> None:
+    try:
+        _tenant_registry[execution_id] = tenant
+    except Exception as e:
+        print(f"Error in register_execution: {e}")
+        raise
+
+
+def verify_execution_access(execution_id: str, tenant: Optional[str]) -> bool:
+    try:
+        if not tenant:
+            return True  # No tenant scope = unrestricted
+        actual = _tenant_registry.get(execution_id)
+        if not actual:
+            return True  # Untracked executions are accessible
+        return actual == tenant
+    except Exception as e:
+        print(f"Error in verify_execution_access: {e}")
+        raise
+
 
 @router.get("/agents")
-async def list_agents(status: Optional[str] = None, group: Optional[str] = None):
+async def list_agents(
+    status: Optional[str] = None,
+    group: Optional[str] = None,
+):
     status_filter = AgentStatus(status) if status else None
     return {"agents": registry.list(status=status_filter, group=group)}
 
 
 @router.post("/agents")
-async def register_agent(name: str, agent_type: str, config: Optional[Dict] = None):
+async def register_agent(
+    name: str,
+    agent_type: str,
+    config: Optional[Dict] = None,
+):
     agent_id = registry.register(name, agent_type, config)
     return {"agent_id": agent_id, "status": "registered"}
 
@@ -53,6 +82,47 @@ async def stop_agent(agent_id: str):
 @router.get("/agents/count")
 async def agent_count():
     return {"count": registry.count()}
+
+
+@router.post("/agents/batch-cancel")
+async def batch_cancel(
+    execution_ids: List[str] = Body(...),
+    tenant: Optional[str] = Query(None),
+):
+    try:
+        from src.agent.executor import AgentExecutor
+        executor = AgentExecutor()
+
+        results = {}
+        for eid in execution_ids:
+            if not verify_execution_access(eid, tenant):
+                results[eid] = {
+                    "status": "rejected",
+                    "reason": "tenant_mismatch",
+                }
+            else:
+                cancelled = executor.cancel(eid)
+                results[eid] = {
+                    "status": "cancelled" if cancelled else "not_found"
+                }
+
+        return {
+            "results": results,
+            "total": len(results),
+            "cancelled": sum(
+                1
+                for r in results.values()
+                if r["status"] == "cancelled"
+            ),
+            "rejected": sum(
+                1
+                for r in results.values()
+                if r["status"] == "rejected"
+            ),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # 2019-03-18T11:10:18 update
 
