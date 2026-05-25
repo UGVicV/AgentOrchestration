@@ -1,12 +1,29 @@
 """Configuration management module."""
 
+import copy
+import logging
 import os
 import json
+import re
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
+
+# Patterns that indicate sensitive config keys.
+SENSITIVE_KEY_PATTERNS = re.compile(
+    r"(password|secret|token|key|credential|auth)",
+    re.IGNORECASE,
+)
+
+# Redaction placeholder for masked values.
+REDACTED_VALUE = "***REDACTED***"
 
 
 class Config:
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(
+        self,
+        config_path: Optional[str] = None,
+    ):
         self._data: Dict[str, Any] = {}
         if config_path:
             self.load(config_path)
@@ -21,13 +38,24 @@ class Config:
             prefix = "AO_CONFIG_"
             for key, value in os.environ.items():
                 if key.startswith(prefix):
-                    config_key = key[len(prefix):].lower().replace("_", ".")
-                    self._set_nested(config_key, value)
+                    config_key = (
+                        key[len(prefix):]
+                        .lower()
+                        .replace("_", ".")
+                    )
+                    self._set_nested(
+                        config_key, value
+                    )
         except Exception as e:
-            print(f"Error in _load_env_overrides: {e}")
+            logger.error(
+                f"Error in _load_env_overrides:"
+                f" {e}"
+            )
             raise
 
-    def _set_nested(self, key: str, value: Any) -> None:
+    def _set_nested(
+        self, key: str, value: Any
+    ) -> None:
         parts = key.split(".")
         current = self._data
         for part in parts[:-1]:
@@ -36,7 +64,9 @@ class Config:
             current = current[part]
         current[parts[-1]] = value
 
-    def get(self, key: str, default: Any = None) -> Any:
+    def get(
+        self, key: str, default: Any = None
+    ) -> Any:
         parts = key.split(".")
         current = self._data
         for part in parts:
@@ -48,11 +78,50 @@ class Config:
                 return default
         return current
 
-    def set(self, key: str, value: Any) -> None:
+    def set(
+        self, key: str, value: Any
+    ) -> None:
         self._set_nested(key, value)
 
     def to_dict(self) -> Dict:
         return self._data
+
+    @staticmethod
+    def _redact_dict(data: Dict) -> Dict:
+        """Recursively redact sensitive keys."""
+        try:
+            redacted = {}
+            for k, v in data.items():
+                if isinstance(v, dict):
+                    redacted[k] = (
+                        Config._redact_dict(v)
+                    )
+                elif SENSITIVE_KEY_PATTERNS.search(
+                    k
+                ):
+                    redacted[k] = REDACTED_VALUE
+                else:
+                    redacted[k] = v
+            return redacted
+        except Exception as e:
+            logger.error(
+                "Error in _redact_dict:"
+                f" {e}"
+            )
+            raise
+
+    def to_redacted_dict(self) -> Dict:
+        """Return config with sensitive values
+        masked for safe diagnostic output."""
+        try:
+            snapshot = copy.deepcopy(self._data)
+            return Config._redact_dict(snapshot)
+        except Exception as e:
+            logger.error(
+                "Error in to_redacted_dict:"
+                f" {e}"
+            )
+            raise
 
 # 2019-03-14T15:29:32 update
 

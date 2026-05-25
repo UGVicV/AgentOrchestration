@@ -1,28 +1,46 @@
 import pytest
-from src.common.config import Config
+from src.common.config import (
+    Config,
+    REDACTED_VALUE,
+)
 
 
 class TestConfig:
     def test_load_config(self, tmp_path):
         config_file = tmp_path / "config.json"
-        config_file.write_text('{"app": {"name": "test", "port": 8080}}')
+        config_file.write_text(
+            '{"app": {"name": "test",'
+            ' "port": 8080}}'
+        )
         config = Config(str(config_file))
         assert config.get("app.name") == "test"
         assert config.get("app.port") == 8080
 
     def test_default_value(self):
         config = Config()
-        assert config.get("nonexistent.key", "default") == "default"
+        assert (
+            config.get(
+                "nonexistent.key", "default"
+            )
+            == "default"
+        )
 
     def test_set_value(self):
         config = Config()
-        config.set("database.host", "localhost")
-        assert config.get("database.host") == "localhost"
+        config.set(
+            "database.host", "localhost"
+        )
+        assert (
+            config.get("database.host")
+            == "localhost"
+        )
 
     def test_nested_set(self):
         config = Config()
         config.set("a.b.c.d", "value")
-        assert config.get("a.b.c.d") == "value"
+        assert (
+            config.get("a.b.c.d") == "value"
+        )
 
     def test_to_dict(self):
         config = Config()
@@ -34,18 +52,130 @@ class TestConfig:
 
     def test_env_overrides(self, monkeypatch):
         try:
-            monkeypatch.setenv("AO_CONFIG_DATABASE_PORT", "5432")
-            monkeypatch.setenv("AO_AGENT_ID", "agent-123")
+            monkeypatch.setenv(
+                "AO_CONFIG_DATABASE_PORT",
+                "5432",
+            )
+            monkeypatch.setenv(
+                "AO_AGENT_ID", "agent-123"
+            )
             config = Config()
             # AO_CONFIG_ prefix should override
-            assert config.get("database.port") == "5432"
-            # Unrelated AO_ prefix (e.g. AO_AGENT_ID) should NOT override
-            assert config.get("agent.id") is None
+            assert (
+                config.get("database.port")
+                == "5432"
+            )
+            # Unrelated AO_ prefix should NOT
+            assert (
+                config.get("agent.id") is None
+            )
         except Exception as e:
-            print(f"Error in test_env_overrides: {e}")
+            print(
+                "Error in"
+                f" test_env_overrides: {e}"
+            )
             raise
 
-# 2019-02-01T18:58:35 update
+    def test_redacted_masks_sensitive(self):
+        try:
+            config = Config()
+            config.set(
+                "db_password", "s3cret123"
+            )
+            config.set(
+                "api_token", "tok_abc"
+            )
+            config.set(
+                "auth_key", "mykey"
+            )
+            redacted = config.to_redacted_dict()
+            assert (
+                redacted["db_password"]
+                == REDACTED_VALUE
+            )
+            assert (
+                redacted["api_token"]
+                == REDACTED_VALUE
+            )
+            assert (
+                redacted["auth_key"]
+                == REDACTED_VALUE
+            )
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
+    def test_redacted_preserves_safe(self):
+        try:
+            config = Config()
+            config.set("app_name", "myapp")
+            config.set("port", 8080)
+            redacted = config.to_redacted_dict()
+            assert (
+                redacted["app_name"] == "myapp"
+            )
+            assert redacted["port"] == 8080
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
+    def test_redacted_nested(self):
+        try:
+            config = Config()
+            config.set(
+                "database.password", "p@ss"
+            )
+            config.set(
+                "database.host", "localhost"
+            )
+            redacted = config.to_redacted_dict()
+            db = redacted["database"]
+            assert (
+                db["password"]
+                == REDACTED_VALUE
+            )
+            assert db["host"] == "localhost"
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
+    def test_redacted_does_not_modify_orig(
+        self,
+    ):
+        try:
+            config = Config()
+            config.set(
+                "secret", "original_val"
+            )
+            config.to_redacted_dict()
+            # Original data must be intact
+            raw = config.to_dict()
+            assert (
+                raw["secret"]
+                == "original_val"
+            )
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
+    def test_to_dict_returns_full_data(self):
+        try:
+            config = Config()
+            config.set(
+                "api_secret", "hidden"
+            )
+            config.set("name", "visible")
+            raw = config.to_dict()
+            assert raw["api_secret"] == "hidden"
+            assert raw["name"] == "visible"
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
 
 # 2019-07-31T13:45:15 update
 
