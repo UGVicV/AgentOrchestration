@@ -228,6 +228,81 @@ class TestMetricsCollector:
                 f"Unexpected exception: {e}"
             )
 
+    def test_histogram_min_max(self):
+        try:
+            self.metrics.observe("lat", 0.5)
+            self.metrics.observe("lat", 2.0)
+            self.metrics.observe("lat", 0.1)
+            snap = self.metrics.snapshot()
+            h = snap["histograms"]["lat"]
+            assert h["min"] == 0.1
+            assert h["max"] == 2.0
+            assert h["count"] == 3
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
+    def test_histogram_bounded_samples(self):
+        try:
+            from src.common.metrics import (
+                MAX_HISTOGRAM_SAMPLES,
+            )
+            # Record more than max samples
+            total = MAX_HISTOGRAM_SAMPLES + 500
+            for i in range(total):
+                self.metrics.observe(
+                    "bounded", float(i)
+                )
+            snap = self.metrics.snapshot()
+            h = snap["histograms"]["bounded"]
+            # Count tracks all observations
+            assert h["count"] == total
+            # Sum tracks all values
+            expected_sum = sum(
+                float(i) for i in range(total)
+            )
+            assert h["sum"] == expected_sum
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
+    def test_histogram_aggregates_accurate(
+        self,
+    ):
+        try:
+            vals = [1.0, 2.0, 3.0, 4.0, 5.0]
+            for v in vals:
+                self.metrics.observe(
+                    "acc", v
+                )
+            snap = self.metrics.snapshot()
+            h = snap["histograms"]["acc"]
+            assert h["count"] == 5
+            assert h["sum"] == 15.0
+            assert h["avg"] == 3.0
+            assert h["min"] == 1.0
+            assert h["max"] == 5.0
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
+    def test_histogram_empty(self):
+        try:
+            # Access a histogram that has
+            # never been observed
+            snap = self.metrics.snapshot()
+            assert (
+                "never_seen"
+                not in snap["histograms"]
+            )
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
 # 2019-09-09T13:35:42 update
 
 # 2019-09-27T12:32:57 update

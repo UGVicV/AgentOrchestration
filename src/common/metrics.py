@@ -2,8 +2,8 @@
 
 import logging
 import time
-from collections import defaultdict
-from typing import Dict, List
+from collections import defaultdict, deque
+from typing import Dict
 from threading import Lock
 from datetime import datetime, timezone
 
@@ -12,15 +12,48 @@ logger = logging.getLogger(__name__)
 # Common backend integer limit (signed 64-bit).
 MAX_COUNTER_VALUE = 2**63 - 1
 
+# Max recent samples kept per histogram.
+MAX_HISTOGRAM_SAMPLES = 1000
+
+
+class _HistogramBucket:
+    """Bounded histogram storage."""
+
+    __slots__ = (
+        "count", "total",
+        "min_val", "max_val",
+        "samples",
+    )
+
+    def __init__(self):
+        self.count = 0
+        self.total = 0.0
+        self.min_val = float("inf")
+        self.max_val = float("-inf")
+        self.samples = deque(
+            maxlen=MAX_HISTOGRAM_SAMPLES
+        )
+
+    def record(self, value: float) -> None:
+        self.count += 1
+        self.total += value
+        if value < self.min_val:
+            self.min_val = value
+        if value > self.max_val:
+            self.max_val = value
+        self.samples.append(value)
+
 
 class MetricsCollector:
     def __init__(self):
         self._lock = Lock()
-        self._counters: Dict[str, int] = defaultdict(int)
-        self._gauges: Dict[str, float] = {}
-        self._histograms: Dict[str, List[float]] = (
-            defaultdict(list)
+        self._counters: Dict[str, int] = (
+            defaultdict(int)
         )
+        self._gauges: Dict[str, float] = {}
+        self._histograms: Dict[
+            str, _HistogramBucket
+        ] = defaultdict(_HistogramBucket)
         self._timers: Dict[str, float] = {}
 
     def increment(
@@ -62,9 +95,19 @@ class MetricsCollector:
             print(f"Error in gauge: {e}")
             raise
 
-    def observe(self, metric: str, value: float) -> None:
-        with self._lock:
-            self._histograms[metric].append(value)
+    def observe(
+        self, metric: str, value: float
+    ) -> None:
+        try:
+            with self._lock:
+                self._histograms[
+                    metric
+                ].record(value)
+        except Exception as e:
+            logger.error(
+                f"Error in observe: {e}"
+            )
+            raise
 
     def start_timer(self, metric: str) -> None:
         with self._lock:
@@ -91,22 +134,42 @@ class MetricsCollector:
                     "gauges": dict(self._gauges),
                     "histograms": {
                         k: {
-                            "count": len(v),
-                            "sum": sum(v),
+                            "count": b.count,
+                            "sum": b.total,
                             "avg": (
-                                sum(v) / len(v)
-                                if v
+                                b.total
+                                / b.count
+                                if b.count
+                                else 0
+                            ),
+                            "min": (
+                                b.min_val
+                                if b.count
+                                else 0
+                            ),
+                            "max": (
+                                b.max_val
+                                if b.count
                                 else 0
                             ),
                         }
-                        for k, v
-                        in self._histograms.items()
+                        for k, b
+                        in self._histograms
+                        .items()
                     },
-                    "collected_at": datetime.now(timezone.utc).isoformat(),
-                    "active_timers": len(self._timers),
+                    "collected_at": (
+                        datetime.now(
+                            timezone.utc
+                        ).isoformat()
+                    ),
+                    "active_timers": len(
+                        self._timers
+                    ),
                 }
         except Exception as e:
-            print(f"Error in snapshot: {e}")
+            logger.error(
+                f"Error in snapshot: {e}"
+            )
             raise
 
 
