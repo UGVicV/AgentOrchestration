@@ -23,28 +23,45 @@ class TestMetricsCollector:
         try:
             # Set a valid initial value
             self.metrics.gauge("test.gauge", 42.0)
-            
+
             # String value
             with pytest.raises(ValueError):
-                self.metrics.gauge("test.gauge", "invalid")
-                
+                self.metrics.gauge(
+                    "test.gauge", "invalid"
+                )
+
             # Boolean value
             with pytest.raises(ValueError):
-                self.metrics.gauge("test.gauge", True)
-                
+                self.metrics.gauge(
+                    "test.gauge", True
+                )
+
             # None value
             with pytest.raises(ValueError):
-                self.metrics.gauge("test.gauge", None)
-                
+                self.metrics.gauge(
+                    "test.gauge", None
+                )
+
             # Dict value
             with pytest.raises(ValueError):
-                self.metrics.gauge("test.gauge", {"key": "val"})
+                self.metrics.gauge(
+                    "test.gauge",
+                    {"key": "val"},
+                )
 
-            # Verify that the invalid calls did not overwrite the original valid value
+            # Verify invalid calls did not
+            # overwrite the original valid value
             snapshot = self.metrics.snapshot()
-            assert snapshot["gauges"]["test.gauge"] == 42.0
+            assert (
+                snapshot["gauges"]["test.gauge"]
+                == 42.0
+            )
         except Exception as e:
-            print(f"Error in test_invalid_gauge_types: {e}")
+            print(
+                "Error in"
+                " test_invalid_gauge_types:"
+                f" {e}"
+            )
             raise
 
     def test_observe(self):
@@ -65,17 +82,30 @@ class TestMetricsCollector:
         try:
             snapshot = self.metrics.snapshot()
             assert "collected_at" in snapshot
-            collected_at_str = snapshot["collected_at"]
-            
-            # Verify it is valid ISO 8601 UTC string
-            from datetime import datetime, timezone
-            dt = datetime.fromisoformat(collected_at_str)
-            
-            # It should have tzinfo representing UTC
+            collected_at_str = (
+                snapshot["collected_at"]
+            )
+
+            # Verify valid ISO 8601 UTC string
+            from datetime import (
+                datetime, timezone,
+            )
+            dt = datetime.fromisoformat(
+                collected_at_str
+            )
+
+            # Should have tzinfo for UTC
             assert dt.tzinfo is not None
-            assert dt.tzinfo.utcoffset(dt) == timezone.utc.utcoffset(dt)
+            assert (
+                dt.tzinfo.utcoffset(dt)
+                == timezone.utc.utcoffset(dt)
+            )
         except Exception as e:
-            print(f"Error in test_snapshot_includes_collected_at: {e}")
+            print(
+                "Error in"
+                " test_snapshot_includes"
+                f"_collected_at: {e}"
+            )
             raise
 
     def test_active_timer_count(self):
@@ -83,31 +113,120 @@ class TestMetricsCollector:
             # Initial active timers should be 0
             snapshot = self.metrics.snapshot()
             assert snapshot["active_timers"] == 0
-            
+
             # Start a timer
             self.metrics.start_timer("timer_1")
             snapshot = self.metrics.snapshot()
             assert snapshot["active_timers"] == 1
-            
+
             # Start another timer
             self.metrics.start_timer("timer_2")
             snapshot = self.metrics.snapshot()
             assert snapshot["active_timers"] == 2
-            
+
             # Stop first timer
             self.metrics.stop_timer("timer_1")
             snapshot = self.metrics.snapshot()
             assert snapshot["active_timers"] == 1
-            
+
             # Stop second timer
             self.metrics.stop_timer("timer_2")
             snapshot = self.metrics.snapshot()
             assert snapshot["active_timers"] == 0
         except Exception as e:
-            print(f"Error in test_active_timer_count: {e}")
+            print(
+                "Error in"
+                " test_active_timer_count:"
+                f" {e}"
+            )
             raise
 
-# 2019-07-16T09:29:21 update
+    def test_increment_negative_value(self):
+        try:
+            with pytest.raises(
+                ValueError,
+                match="non-negative",
+            ):
+                self.metrics.increment(
+                    "test.counter", -1
+                )
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
+    def test_increment_non_numeric_type(self):
+        try:
+            with pytest.raises(
+                TypeError,
+                match="must be an integer",
+            ):
+                self.metrics.increment(
+                    "test.counter", "bad"
+                )
+            with pytest.raises(
+                TypeError,
+                match="must be an integer",
+            ):
+                self.metrics.increment(
+                    "test.counter", True
+                )
+            with pytest.raises(
+                TypeError,
+                match="must be an integer",
+            ):
+                self.metrics.increment(
+                    "test.counter", None
+                )
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
+    def test_increment_exceeds_max_counter(self):
+        try:
+            from src.common.metrics import (
+                MAX_COUNTER_VALUE,
+            )
+            self.metrics.increment(
+                "big", MAX_COUNTER_VALUE
+            )
+            with pytest.raises(OverflowError):
+                self.metrics.increment("big", 1)
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
+    def test_increment_at_max_boundary(self):
+        try:
+            from src.common.metrics import (
+                MAX_COUNTER_VALUE,
+            )
+            self.metrics.increment(
+                "boundary", MAX_COUNTER_VALUE
+            )
+            snap = self.metrics.snapshot()
+            assert (
+                snap["counters"]["boundary"]
+                == MAX_COUNTER_VALUE
+            )
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
+
+    def test_increment_no_mutate_on_error(self):
+        try:
+            self.metrics.increment("safe", 5)
+            with pytest.raises(ValueError):
+                self.metrics.increment("safe", -1)
+            snap = self.metrics.snapshot()
+            assert snap["counters"]["safe"] == 5
+        except Exception as e:
+            pytest.fail(
+                f"Unexpected exception: {e}"
+            )
 
 # 2019-09-09T13:35:42 update
 

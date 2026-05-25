@@ -1,10 +1,16 @@
 """Metrics collection and reporting."""
 
+import logging
 import time
 from collections import defaultdict
 from typing import Dict, List
 from threading import Lock
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
+
+# Common backend integer limit (signed 64-bit).
+MAX_COUNTER_VALUE = 2**63 - 1
 
 
 class MetricsCollector:
@@ -12,12 +18,39 @@ class MetricsCollector:
         self._lock = Lock()
         self._counters: Dict[str, int] = defaultdict(int)
         self._gauges: Dict[str, float] = {}
-        self._histograms: Dict[str, List[float]] = defaultdict(list)
+        self._histograms: Dict[str, List[float]] = (
+            defaultdict(list)
+        )
         self._timers: Dict[str, float] = {}
 
-    def increment(self, metric: str, value: int = 1) -> None:
-        with self._lock:
-            self._counters[metric] += value
+    def increment(
+        self, metric: str, value: int = 1
+    ) -> None:
+        try:
+            if isinstance(value, bool) or not isinstance(
+                value, int
+            ):
+                raise TypeError(
+                    "increment value must be an integer"
+                )
+            if value < 0:
+                raise ValueError(
+                    "increment value must be non-negative"
+                )
+            with self._lock:
+                new_val = self._counters[metric] + value
+                if new_val > MAX_COUNTER_VALUE:
+                    raise OverflowError(
+                        "counter would exceed max"
+                        f" exportable value"
+                        f" ({MAX_COUNTER_VALUE})"
+                    )
+                self._counters[metric] = new_val
+        except Exception as e:
+            logger.error(
+                f"Error in increment: {e}"
+            )
+            raise
 
     def gauge(self, metric: str, value: float) -> None:
         try:
@@ -56,8 +89,19 @@ class MetricsCollector:
                 return {
                     "counters": dict(self._counters),
                     "gauges": dict(self._gauges),
-                    "histograms": {k: {"count": len(v), "sum": sum(v), "avg": sum(v) / len(v) if v else 0}
-                                   for k, v in self._histograms.items()},
+                    "histograms": {
+                        k: {
+                            "count": len(v),
+                            "sum": sum(v),
+                            "avg": (
+                                sum(v) / len(v)
+                                if v
+                                else 0
+                            ),
+                        }
+                        for k, v
+                        in self._histograms.items()
+                    },
                     "collected_at": datetime.now(timezone.utc).isoformat(),
                     "active_timers": len(self._timers),
                 }
